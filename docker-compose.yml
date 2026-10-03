@@ -75,7 +75,17 @@ services:
       TAKEPLACE_API_HOST: 0.0.0.0
       TAKEPLACE_API_PORT: "8000"
     command:
-      ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+      - uvicorn
+      - app.main:app
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      - --reload
+      # Trust X-Forwarded-* only from explicitly configured proxies (§39.5).
+      - --proxy-headers
+      - --forwarded-allow-ips
+      - ${TAKEPLACE_FORWARDED_ALLOW_IPS:-127.0.0.1}
     ports:
       - "127.0.0.1:${TAKEPLACE_API_PORT:-8000}:8000"
     volumes:

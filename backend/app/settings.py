@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import base64
 import binascii
-import ipaddress
 from enum import StrEnum
 from functools import lru_cache
 from typing import Annotated, Literal
@@ -64,6 +63,12 @@ class Settings(BaseSettings):
     # --- API ----------------------------------------------------------------
     api_host: str = "127.0.0.1"
     api_port: int = 8000
+
+    # Networks whose ``X-Forwarded-*`` headers may be trusted (PROJECT-SPEC
+    # §39.5). Only the reverse proxy / internal network should be listed.
+    # Accepts a comma-separated list of IPs/CIDRs, or "*" to trust all (never
+    # in production). Default trusts only the local process.
+    forwarded_allow_ips: str = "127.0.0.1"
 
     # --- database -----------------------------------------------------------
     db_host: str = "127.0.0.1"
@@ -173,6 +178,12 @@ class Settings(BaseSettings):
             if not origin.startswith("https://"):
                 problems.append(f"production CORS origin must use https://: {origin!r}")
 
+        if self.forwarded_allow_ips.strip() == "*":
+            problems.append(
+                "TAKEPLACE_FORWARDED_ALLOW_IPS=* is not allowed in production; "
+                "list the reverse-proxy addresses only"
+            )
+
         for name, value in (
             ("TAKEPLACE_IDEMPOTENCY_HMAC_KEY", self.idempotency_hmac_key),
             ("TAKEPLACE_ABUSE_HMAC_KEY", self.abuse_hmac_key),
@@ -225,19 +236,3 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Return the process-wide settings singleton."""
     return Settings()
-
-
-def trusted_proxy_networks() -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
-    """Networks whose forwarded-client headers may be trusted.
-
-    Uvicorn only trusts ``X-Forwarded-*`` from these networks. The reverse proxy
-    (Caddy / the internal Docker network) is the only legitimate source
-    (PROJECT-SPEC §39.5).
-    """
-    return [
-        ipaddress.ip_network("127.0.0.0/8"),
-        ipaddress.ip_network("::1/128"),
-        # Docker's default bridge / compose network ranges.
-        ipaddress.ip_network("172.16.0.0/12"),
-        ipaddress.ip_network("10.0.0.0/8"),
-    ]

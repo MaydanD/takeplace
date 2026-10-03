@@ -77,6 +77,11 @@ def test_production_requires_cors_origins() -> None:
         Settings(**_production_kwargs(cors_origins=""))  # type: ignore[arg-type]
 
 
+def test_production_rejects_wildcard_forwarded_allow_ips() -> None:
+    with pytest.raises(ValidationError, match="FORWARDED_ALLOW_IPS"):
+        Settings(**_production_kwargs(forwarded_allow_ips="*"))  # type: ignore[arg-type]
+
+
 def test_production_rejects_short_vk_key() -> None:
     with pytest.raises(ValidationError, match="VK_ENCRYPTION_KEYS"):
         Settings(**_production_kwargs(vk_encryption_keys="1:c2hvcnQ"))  # type: ignore[arg-type]

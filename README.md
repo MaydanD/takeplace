@@ -87,6 +87,7 @@ docker compose down -v       # удалить и данные PostgreSQL (пер
 | `TAKEPLACE_DB_LOCK_TIMEOUT_MS`         | `lock_timeout` (prod baseline: 3000)                    |
 | `TAKEPLACE_DB_IDLE_IN_TRANSACTION_TIMEOUT_MS` | idle-in-transaction timeout (prod baseline: 15000) |
 | `TAKEPLACE_CORS_ORIGINS`               | Точные origins через запятую; `*` запрещён              |
+| `TAKEPLACE_FORWARDED_ALLOW_IPS`        | Кому доверять `X-Forwarded-*` (только reverse proxy; `*` отклоняется в prod) |
 | `TAKEPLACE_IDEMPOTENCY_HMAC_KEY`       | HMAC-ключ идемпотентности (PROJECT-SPEC §42.1)          |
 | `TAKEPLACE_ABUSE_HMAC_KEY`             | HMAC-ключ anti-abuse fingerprint (§40)                  |
 | `TAKEPLACE_VK_ENCRYPTION_KEYS`         | Key ring шифрования VK-токена (§38.5)                   |
