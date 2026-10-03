@@ -1,0 +1,175 @@
+{
+  "components": {
+    "schemas": {
+      "LivenessResponse": {
+        "properties": {
+          "status": {
+            "const": "ok",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "LivenessResponse",
+        "type": "object"
+      },
+      "OpsResponse": {
+        "properties": {
+          "database": {
+            "enum": [
+              "ok",
+              "unavailable"
+            ],
+            "title": "Database",
+            "type": "string"
+          },
+          "environment": {
+            "title": "Environment",
+            "type": "string"
+          },
+          "outbox_unacknowledged_dead": {
+            "default": 0,
+            "title": "Outbox Unacknowledged Dead",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "degraded"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "timezone_capability": {
+            "default": "ok",
+            "enum": [
+              "ok",
+              "unsupported"
+            ],
+            "title": "Timezone Capability",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "database",
+          "environment"
+        ],
+        "title": "OpsResponse",
+        "type": "object"
+      },
+      "ReadinessResponse": {
+        "properties": {
+          "database": {
+            "enum": [
+              "ok",
+              "unavailable"
+            ],
+            "title": "Database",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "database"
+        ],
+        "title": "ReadinessResponse",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "\nTakeplace HTTP API.\n\n* Public booking API: `/api/public/v1`\n* Admin API: `/api/admin/v1`\n* Health: `/health/live`, `/health/ready`, `/health/ops`\n\nThis OpenAPI document is the single source of API transport types for the\nfrontend. Types are generated with `openapi-typescript` and never edited by hand.\n",
+    "title": "Takeplace API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/health/live": {
+      "get": {
+        "description": "Process liveness: no dependency checks.",
+        "operationId": "live_health_live_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LivenessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Live",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/health/ops": {
+      "get": {
+        "description": "Operational health for external monitoring.\n\nAlways returns 200 so monitoring can distinguish \"degraded\" from \"down\".",
+        "operationId": "ops_health_ops_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Ops",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "description": "Readiness: the app can serve requests and sees a working database.",
+        "operationId": "ready_health_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Ready",
+        "tags": [
+          "health"
+        ]
+      }
+    }
+  }
+}

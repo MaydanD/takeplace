@@ -1,0 +1,207 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  NODE_VERSION: "22"
+
+jobs:
+  backend:
+    name: Backend — lint, format, typecheck, tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Format check (ruff format)
+        run: ruff format --check .
+
+      - name: Typecheck (mypy)
+        run: mypy app
+
+      - name: Unit tests
+        run: pytest -m "not integration"
+
+  database:
+    name: Database — migrations, drift, integration tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: takeplace_admin
+          POSTGRES_PASSWORD: takeplace_admin_password
+          POSTGRES_DB: takeplace
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U takeplace_admin -d takeplace"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+
+    env:
+      # psql client defaults used by the init scripts below.
+      PGHOST: 127.0.0.1
+      PGPORT: "5432"
+      PGPASSWORD: takeplace_admin_password
+      # Application settings (composed into DSNs by app.settings).
+      TAKEPLACE_ENV: development
+      TAKEPLACE_DB_HOST: 127.0.0.1
+      TAKEPLACE_DB_PORT: "5432"
+      TAKEPLACE_DB_NAME: takeplace
+      TAKEPLACE_DB_MIGRATOR_USER: takeplace_migrator
+      TAKEPLACE_DB_MIGRATOR_PASSWORD: takeplace_migrator_password
+      TAKEPLACE_DB_APP_USER: takeplace_app
+      TAKEPLACE_DB_APP_PASSWORD: takeplace_app_password
+      # Consumed by the PostgreSQL init scripts.
+      POSTGRES_USER: takeplace_admin
+      POSTGRES_DB: takeplace
+      TAKEPLACE_POSTGRES_DB: takeplace
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      # Reuse the exact role/bootstrap scripts the local stack uses, so CI tests
+      # the real provisioning path (PROJECT-SPEC §46).
+      - name: Provision DB roles and privileges
+        working-directory: .
+        run: |
+          bash infra/postgres/init/10-roles.sh
+          bash infra/postgres/init/20-databases.sh
+
+      - name: Migrate to head on a clean database
+        run: alembic upgrade head
+
+      - name: Verify btree_gist installed by the migration
+        run: |
+          psql -h 127.0.0.1 -U "$TAKEPLACE_DB_MIGRATOR_USER" -d "$TAKEPLACE_DB_NAME" \
+            -v ON_ERROR_STOP=1 -c "SELECT 1 FROM pg_extension WHERE extname = 'btree_gist';"
+
+      - name: Verify the app role cannot perform DDL
+        run: |
+          if psql -h 127.0.0.1 -U "$TAKEPLACE_DB_APP_USER" -d "$TAKEPLACE_DB_NAME" \
+            -v ON_ERROR_STOP=1 -c "CREATE TABLE ci_should_fail(id int);"; then
+            echo "ERROR: app role was able to create a table"
+            exit 1
+          fi
+          echo "app role correctly denied DDL"
+
+      - name: Check for schema drift (alembic autogenerate)
+        run: alembic check
+
+      - name: Integration tests (real PostgreSQL)
+        env:
+          TAKEPLACE_TEST_DATABASE_URL: postgresql+asyncpg://takeplace_app:takeplace_app_password@127.0.0.1:5432/takeplace_test
+        run: pytest -m integration
+
+  frontend:
+    name: Frontend — lint, typecheck, tests, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint (eslint)
+        run: npm run lint
+
+      - name: Format check (prettier)
+        run: npm run format:check
+
+      - name: Typecheck (tsc)
+        run: npm run typecheck
+
+      - name: Tests (vitest)
+        run: npm run test
+
+      - name: Production build
+        run: npm run build
+
+  openapi:
+    name: OpenAPI — generated types are up to date
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: pip install -e ".[dev]"
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Export OpenAPI schema
+        working-directory: backend
+        run: python scripts/export_openapi.py ../frontend/openapi/openapi.json
+
+      - name: Regenerate TypeScript API types
+        working-directory: frontend
+        run: npm run api:generate
+
+      - name: Fail if generated artifacts are stale
+        run: |
+          if ! git diff --exit-code -- frontend/openapi/openapi.json frontend/src/api/generated/schema.ts; then
+            echo "ERROR: OpenAPI schema or generated TypeScript types are out of date."
+            echo "Run 'npm run api:generate' (after exporting the schema) and commit the result."
+            exit 1
+          fi
+          echo "OpenAPI schema and generated TypeScript types are up to date."

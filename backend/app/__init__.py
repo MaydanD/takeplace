@@ -1,0 +1,1 @@
+"""Takeplace backend application package."""
