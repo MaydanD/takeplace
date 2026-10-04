@@ -13,6 +13,11 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# The application package lives at /app/app and is also exposed by the editable
+# install. Setting PYTHONPATH makes it importable for entrypoints that do not
+# run from /app (e.g. the `takeplace` console script).
+ENV PYTHONPATH=/app
+
 # System dependencies kept minimal; psycopg/asyncpg ship manylinux wheels.
 RUN apt-get update \
     && apt-get install --no-install-recommends -y curl \

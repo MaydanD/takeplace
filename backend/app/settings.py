@@ -100,6 +100,30 @@ class Settings(BaseSettings):
     # Comma-separated list of exact origins. Never "*".
     cors_origins: str = ""
 
+    # --- Admin auth / sessions (PROJECT-SPEC §39) ---------------------------
+    # Absolute session TTL in days. May be shortened by deploy config, but not
+    # lengthened beyond the v1 maximum of 30 days (§6.3).
+    session_ttl_days: Annotated[int, Field(ge=1, le=30)] = 30
+    # ``last_seen_at`` is refreshed at most this often per session (§6.3).
+    session_last_seen_refresh_seconds: Annotated[int, Field(ge=5, le=3600)] = 60
+    # Concurrency cap for the CPU-bound Argon2id pool (§39.1).
+    argon2_max_concurrency: Annotated[int, Field(ge=1, le=32)] = 4
+    # Session cookie hardening (§39.2). Production always uses the
+    # ``__Host-``-prefixed Secure cookie. Browsers reject ``__Host-``+Secure
+    # cookies on plain-http origins (including http://localhost, Chromium
+    # issue 40202941), so non-production may opt out for local HTTP development;
+    # production validation forbids disabling it. ``None`` means "decide by
+    # environment": secure in production, relaxed otherwise.
+    session_cookie_secure: bool | None = None
+    # Cheap per-IP burst limit applied *before* Argon2 (window/limit in seconds).
+    login_burst_window_seconds: Annotated[int, Field(ge=1, le=3600)] = 60
+    login_burst_max_requests: Annotated[int, Field(ge=1, le=10_000)] = 20
+    # Main rate limit keyed by login + client network (§39.5).
+    login_rate_window_seconds: Annotated[int, Field(ge=1, le=86_400)] = 300
+    login_rate_max_requests: Annotated[int, Field(ge=1, le=10_000)] = 10
+    # Rolling timezone capability horizon for production venues (§53).
+    timezone_horizon_days: Annotated[int, Field(ge=1, le=3660)] = 400
+
     # --- secrets ------------------------------------------------------------
     idempotency_hmac_key: str = "change-me-idempotency-hmac-key"
     abuse_hmac_key: str = "change-me-abuse-hmac-key"
@@ -110,6 +134,13 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.env.is_production
+
+    @property
+    def cookie_secure(self) -> bool:
+        """Whether the admin session cookie must be Secure + ``__Host-``."""
+        if self.session_cookie_secure is not None:
+            return self.session_cookie_secure
+        return self.is_production
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -182,6 +213,12 @@ class Settings(BaseSettings):
             problems.append(
                 "TAKEPLACE_FORWARDED_ALLOW_IPS=* is not allowed in production; "
                 "list the reverse-proxy addresses only"
+            )
+
+        if self.session_cookie_secure is False:
+            problems.append(
+                "TAKEPLACE_SESSION_COOKIE_SECURE=false is not allowed in production; "
+                "the admin cookie must stay Secure + __Host-"
             )
 
         for name, value in (

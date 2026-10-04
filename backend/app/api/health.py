@@ -22,6 +22,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db_session
+from app.services.timezone_capability import get_monitor
 from app.settings import Settings, get_settings
 
 router = APIRouter(tags=["health"])
@@ -87,8 +88,17 @@ async def ops(
     Always returns 200 so monitoring can distinguish "degraded" from "down".
     """
     database_ok = await _database_ready(session)
+
+    # The rolling timezone capability check (§47): unsupported zones degrade ops
+    # without ever being used as a container liveness probe.
+    monitor = get_monitor()
+    capability = monitor.snapshot() if monitor is not None else None
+    timezone_ok = capability is None or not capability.checked or capability.status == "ok"
+
+    degraded = not database_ok or not timezone_ok
     return OpsResponse(
-        status="ok" if database_ok else "degraded",
+        status="ok" if not degraded else "degraded",
         database="ok" if database_ok else "unavailable",
         environment=settings.env.value,
+        timezone_capability="ok" if timezone_ok else "unsupported",
     )
