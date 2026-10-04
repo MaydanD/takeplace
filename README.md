@@ -3,13 +3,19 @@
 Онлайн-бронирование столов для заведений. Backend — FastAPI, frontend — React +
 TypeScript + Vite, база данных — PostgreSQL.
 
-Сейчас реализованы **Stage 1 — Foundation** (инфраструктура: monorepo, PostgreSQL
-с ролями и таймаутами, Alembic, health, security headers, CORS, OpenAPI →
-TypeScript, тесты, CI) и **Stage 2 — Tenant + Auth + CLI**: заведения (tenants),
-admin-аккаунт, server-side sessions, Argon2id, безопасные cookies, tenant
-isolation, операторский CLI, валидация timezone и минимальная изолированная
-админка (login + настройки заведения). Бизнес-логика бронирования появится на
-следующих этапах.
+Реализованы **Stage 1 — Foundation** (monorepo, PostgreSQL с ролями и таймаутами,
+Alembic, health, security headers, CORS, OpenAPI → TypeScript, тесты, CI),
+**Stage 2 — Tenant + Auth + CLI**, **Stage 3 — Schedule + Business Day**,
+**Stage 4 — Halls + Tables + Read-only Canvas** и **Stage 5 — Booking Core**:
+заведения (tenants), admin-аккаунт, server-side sessions, Argon2id, безопасные
+cookies, tenant isolation, операторский CLI, недельное расписание и business day,
+залы/столы и read-only схема, а также ядро бронирований — bookings со снимком
+смены, `table_occupancies` с PostgreSQL exclusion constraint, append-only
+`booking_events`, per-venue booking counter, idempotency по HMAC и concurrency
+suite.
+Двойная бронь запрещена технически: истина — constraint PostgreSQL, не проверка
+в приложении. Публичный поток брони и lifecycle (WAIT/OPEN/CLOSE) — следующие
+этапы.
 
 Источник истины — [`PROJECT-SPEC-v1.3.3.md`](PROJECT-SPEC-v1.3.3.md).
 Краткий operational-конспект — [`IMPLEMENTATION-GUARDRAILS.md`](IMPLEMENTATION-GUARDRAILS.md).
@@ -110,8 +116,8 @@ docker compose run --rm api takeplace create-venue \
 переходами в rolling horizon **400 дней**; той же проверкой каждые сутки
 сканируются активные заведения и поднимается `/health/ops` (§53, §47).
 
-> `create-venue` создаёт venue, admin account, семь закрытых schedule rows и
-> первый зал. Booking counter принадлежит Stage 5 и создаётся там.
+> `create-venue` создаёт venue, admin account, семь закрытых schedule rows,
+> первый зал и строку booking counter (`venue_booking_counters`, §6.7, Stage 5).
 
 ---
 
@@ -288,6 +294,66 @@ Raw-пароли и raw session tokens никогда не сохраняютс�
   `name`, стол — по `number`; ничего не удаляется, повторный запуск идемпотентен.
   Невалидный payload отклоняется до записи (транзакция не оставляет частей).
   Пример: `examples/bar-layout.json`.
+
+---
+
+## Брони — ядро (Stage 5)
+
+- **`bookings`** (§6.6) — бронь с **снимком смены** (`business_date`,
+  `shift_starts_at`, `shift_ends_at`) и плановым интервалом `[starts_at,
+  ends_at)`, party size, источником (`ONLINE | PHONE | VK | WALK_IN | OTHER`),
+  статусом (`NEW | WAITING | OPEN | CLOSED | CANCELED`) и HMAC-полями
+  идемпотентности. `create-venue` создаёт строку счётчика; номер human-readable
+  `number` монотонно растёт на venue (§6.7).
+- **`table_occupancies`** (§6.8) — эффективные интервалы резервирования
+  (`BOOKING`/`BLOCK`). **Двойная бронь невозможна на уровне БД**: exclusion
+  constraint `occupancy_no_overlap` (`btree_gist` +
+  `EXCLUDE USING gist (table_id WITH =, tstzrange(starts_at, ends_at, '[)') WITH &&) WHERE is_active`).
+  Интервалы полуоткрытые, поэтому `20:00–22:00` и `22:00–00:00` совместимы, а
+  `20:00–22:00` и `21:55–23:00` — нет. Python-проверка нужна только для
+  красивого `409 BOOKING_CONFLICT`; истина — constraint (§12).
+- **`booking_events`** (§6.10) — append-only история, канонический порядок по
+  `id`, `ON DELETE SET NULL (admin_session_id)` сохраняет историю и tenant. Без
+  PII/телефона/IP/comment в payload.
+- **Идемпотентность** (§18.2/§19) — `POST /bookings` требует `Idempotency-Key`
+  (UUID); хранится `admin_idempotency_key` + `admin_request_hmac`
+  (HMAC-SHA-256 канонического payload на `IDEMPOTENCY_HMAC_KEY`, не bare hash).
+  Lookup ключа — **до** mutable-валидаций: потерянный и повторённый ответ
+  возвращает ту же бронь (`200`) даже если расписание/состояние изменились;
+  тот же ключ с другим payload — `409 IDEMPOTENCY_KEY_REUSED`. Гонка
+  double-click закрыта partial unique `(venue_id, admin_idempotency_key)`.
+- **Порядок блокировок и время** (§32) — venue read без row lock → shared
+  schedule advisory lock → halls ASC `FOR SHARE` → tables ASC `FOR SHARE` →
+  `operation_now = clock_timestamp()` → booking counter → booking → occupancies
+  → event. `23P01 → 409 BOOKING_CONFLICT`, `23505` по ключу → replay,
+  `40P01/40001` → bounded retry, `55P03` → retry/503 (§32.5).
+- **Capacity** (§14) — `party_size <= SUM(capacity)` по всем сегментам; проверка
+  на согласованном (залоченном) состоянии. Уменьшение capacity не может сломать
+  существующую будущую бронь (`409 CAPACITY_CHANGE_BLOCKED`, §29.4).
+- **Cancel / reschedule** — `POST /bookings/{id}/cancel` деактивирует
+  occupancies (никакой `CANCELED` + active occupancy); `POST
+  /bookings/{id}/change-time` переносит NEW/WAITING на новый интервал и
+  переписывает snapshot. Обе операции используют `expected_version`
+  (`409 BOOKING_STALE`, §33) и единый `truncate_segment_at` (§15.1).
+- **Archive guard** (§29.3) — стол нельзя архивировать, пока у него есть
+  будущая active BOOKING occupancy; archive берёт table `FOR UPDATE` и
+  сериализуется с booking create.
+- **Schedule change guard** (§5.5) — изменение расписания не двигает
+  существующие брони: если будущая бронь выпадает из нового графика, backend
+  возвращает `409 SCHEDULE_CHANGE_REQUIRES_CONFIRMATION` со списком таких
+  броней; применение требует `?confirm=true`.
+- **API** (§35, booking-core subset): `POST /bookings`, `GET /bookings`
+  (cursor/limit + фильтры `business_date`, `status`, `source`, `table_id`,
+  `phone`), `GET /bookings/unresolved`, `GET /bookings/{id}`,
+  `GET /bookings/{id}/history`, `POST /bookings/{id}/cancel`,
+  `POST /bookings/{id}/change-time`. Tenant — только из session.
+- **Тесты** — unit/property (`tests/test_booking_domain.py`, Hypothesis для
+  segment/capacity algebra), integration (`tests/integration/test_bookings_api.py`)
+  и **PostgreSQL concurrency suite** (`tests/integration/test_bookings_concurrency.py`,
+  §54): same-slot, idempotent duplicate, adjacent/overlap, multi-table
+  atomicity, cross-table lock order, archive/create, capacity/create,
+  schedule/create, cancel/time-change и проверка, что exclusion constraint —
+  последний арбитр. Этап закрыт только при зелёном concurrency suite.
 
 ---
 
