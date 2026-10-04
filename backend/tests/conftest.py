@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 def settings() -> Settings:
     """Development settings with test-only secrets and no real database use."""
     return Settings(
+        database_url="postgresql+asyncpg://unit:unit@127.0.0.1:1/unit",
         env="development",
         cors_origins="http://localhost:5173",
         idempotency_hmac_key="test-idempotency-key-0123456789",
