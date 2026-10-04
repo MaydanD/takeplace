@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import { useLogout, useLogoutAll, useMe, useSettings, useUpdateSettings } from "@/api/adminQueries";
 
@@ -63,6 +63,9 @@ export function AdminDashboardPage() {
       <header className="page-header">
         <h1>Админка</h1>
         <div className="page-header__actions">
+          <Link to="/admin/schedule" className="button-link">
+            Расписание
+          </Link>
           <button type="button" onClick={handleLogout} disabled={logoutMutation.isPending}>
             Выйти
           </button>

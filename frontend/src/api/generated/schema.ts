@@ -91,6 +91,101 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/v1/schedule": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Weekly Schedule
+         * @description Return this venue's weekly schedule (all seven weekdays).
+         */
+        get: operations["get_weekly_schedule_api_admin_v1_schedule_get"];
+        /**
+         * Put Weekly Schedule
+         * @description Replace the weekly schedule, validating grid rules and adjacent overlaps.
+         *
+         *     The request must define every weekday; a shift that crosses midnight is
+         *     expressed as ``close_time < open_time`` (�5.2). A schedule whose adjacent
+         *     shifts would overlap is rejected with ``SCHEDULE_OVERLAP`` (�5.4).
+         */
+        put: operations["put_weekly_schedule_api_admin_v1_schedule_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/v1/schedule/business-day": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Business Day
+         * @description Return the computed state for a business date (�5.1, �5.6).
+         *
+         *     With no ``business_date`` the *current* business date is used � which may be
+         *     yesterday's date while an overnight shift is still running.
+         */
+        get: operations["get_business_day_api_admin_v1_schedule_business_day_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/v1/schedule/exceptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Exceptions
+         * @description Return this venue's date-specific schedule exceptions.
+         */
+        get: operations["get_exceptions_api_admin_v1_schedule_exceptions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/v1/schedule/exceptions/{business_date}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Exception
+         * @description Create or replace the exception for one business date (�5.3).
+         */
+        put: operations["put_exception_api_admin_v1_schedule_exceptions__business_date__put"];
+        post?: never;
+        /**
+         * Remove Exception
+         * @description Delete the exception for one date, reverting to the weekly rule (�5.3).
+         */
+        delete: operations["remove_exception_api_admin_v1_schedule_exceptions__business_date__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/v1/settings": {
         parameters: {
             query?: never;
@@ -197,6 +292,32 @@ export interface components {
             /** Login */
             login: string;
         };
+        /**
+         * BusinessDayResponse
+         * @description Computed schedule state for one business date (PROJECT-SPEC �5.1, �5.6).
+         */
+        BusinessDayResponse: {
+            /**
+             * Business Date
+             * Format: date
+             */
+            business_date: string;
+            /**
+             * Current Business Date
+             * Format: date
+             */
+            current_business_date: string;
+            /** Is Open */
+            is_open: boolean;
+            /** Is Open Now */
+            is_open_now: boolean;
+            /** Shift End */
+            shift_end: string | null;
+            /** Shift Start */
+            shift_start: string | null;
+            /** Timezone */
+            timezone: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -262,6 +383,53 @@ export interface components {
             status: "ok" | "unavailable";
         };
         /**
+         * ScheduleDay
+         * @description One weekday rule. ``is_open=false`` means the day is closed.
+         */
+        ScheduleDay: {
+            /** Close Time */
+            close_time?: string | null;
+            /** Is Open */
+            is_open: boolean;
+            /** Open Time */
+            open_time?: string | null;
+            /** Weekday */
+            weekday: number;
+        };
+        /** ScheduleExceptionEntry */
+        ScheduleExceptionEntry: {
+            /** Close Time */
+            close_time: string | null;
+            /**
+             * Date
+             * Format: date
+             */
+            date: string;
+            /** Is Closed */
+            is_closed: boolean;
+            /** Open Time */
+            open_time: string | null;
+        };
+        /**
+         * ScheduleExceptionUpdate
+         * @description A date-specific override; it fully replaces the weekly rule (�5.3).
+         */
+        ScheduleExceptionUpdate: {
+            /** Close Time */
+            close_time?: string | null;
+            /** Is Closed */
+            is_closed: boolean;
+            /** Open Time */
+            open_time?: string | null;
+        };
+        /** ScheduleExceptionsResponse */
+        ScheduleExceptionsResponse: {
+            /** Exceptions */
+            exceptions: components["schemas"]["ScheduleExceptionEntry"][];
+            /** Timezone */
+            timezone: string;
+        };
+        /**
          * SettingsUpdate
          * @description Editable venue settings.
          *
@@ -317,6 +485,21 @@ export interface components {
             slug: string;
             /** Timezone */
             timezone: string;
+        };
+        /** WeeklyScheduleResponse */
+        WeeklyScheduleResponse: {
+            /** Timezone */
+            timezone: string;
+            /** Weekdays */
+            weekdays: components["schemas"]["ScheduleDay"][];
+        };
+        /**
+         * WeeklyScheduleUpdate
+         * @description Full replacement of the weekly schedule (all seven weekdays).
+         */
+        WeeklyScheduleUpdate: {
+            /** Weekdays */
+            weekdays: components["schemas"]["ScheduleDay"][];
         };
     };
     responses: never;
@@ -416,6 +599,174 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MeResponse"];
+                };
+            };
+        };
+    };
+    get_weekly_schedule_api_admin_v1_schedule_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeeklyScheduleResponse"];
+                };
+            };
+        };
+    };
+    put_weekly_schedule_api_admin_v1_schedule_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WeeklyScheduleUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WeeklyScheduleResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_business_day_api_admin_v1_schedule_business_day_get: {
+        parameters: {
+            query?: {
+                business_date?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BusinessDayResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_exceptions_api_admin_v1_schedule_exceptions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleExceptionsResponse"];
+                };
+            };
+        };
+    };
+    put_exception_api_admin_v1_schedule_exceptions__business_date__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                business_date: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ScheduleExceptionUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleExceptionEntry"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    remove_exception_api_admin_v1_schedule_exceptions__business_date__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                business_date: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -4,6 +4,7 @@ import { RequireAdmin } from "@/components/RequireAdmin";
 import { AdminDashboardPage } from "@/pages/AdminDashboardPage";
 import { AdminLoginPage } from "@/pages/AdminLoginPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
+import { SchedulePage } from "@/pages/SchedulePage";
 import { SystemStatusPage } from "@/pages/SystemStatusPage";
 
 /**
@@ -22,6 +23,14 @@ export function App() {
         element={
           <RequireAdmin>
             <AdminDashboardPage />
+          </RequireAdmin>
+        }
+      />
+      <Route
+        path="/admin/schedule"
+        element={
+          <RequireAdmin>
+            <SchedulePage />
           </RequireAdmin>
         }
       />

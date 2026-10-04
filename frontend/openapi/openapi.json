@@ -25,6 +25,68 @@
         "title": "AdminSummary",
         "type": "object"
       },
+      "BusinessDayResponse": {
+        "description": "Computed schedule state for one business date (PROJECT-SPEC §5.1, §5.6).",
+        "properties": {
+          "business_date": {
+            "format": "date",
+            "title": "Business Date",
+            "type": "string"
+          },
+          "current_business_date": {
+            "format": "date",
+            "title": "Current Business Date",
+            "type": "string"
+          },
+          "is_open": {
+            "title": "Is Open",
+            "type": "boolean"
+          },
+          "is_open_now": {
+            "title": "Is Open Now",
+            "type": "boolean"
+          },
+          "shift_end": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shift End"
+          },
+          "shift_start": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shift Start"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "business_date",
+          "timezone",
+          "is_open",
+          "is_open_now",
+          "current_business_date",
+          "shift_start",
+          "shift_end"
+        ],
+        "title": "BusinessDayResponse",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -159,6 +221,153 @@
           "database"
         ],
         "title": "ReadinessResponse",
+        "type": "object"
+      },
+      "ScheduleDay": {
+        "description": "One weekday rule. ``is_open=false`` means the day is closed.",
+        "properties": {
+          "close_time": {
+            "anyOf": [
+              {
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close Time"
+          },
+          "is_open": {
+            "title": "Is Open",
+            "type": "boolean"
+          },
+          "open_time": {
+            "anyOf": [
+              {
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Open Time"
+          },
+          "weekday": {
+            "maximum": 6.0,
+            "minimum": 0.0,
+            "title": "Weekday",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "weekday",
+          "is_open"
+        ],
+        "title": "ScheduleDay",
+        "type": "object"
+      },
+      "ScheduleExceptionEntry": {
+        "properties": {
+          "close_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close Time"
+          },
+          "date": {
+            "format": "date",
+            "title": "Date",
+            "type": "string"
+          },
+          "is_closed": {
+            "title": "Is Closed",
+            "type": "boolean"
+          },
+          "open_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Open Time"
+          }
+        },
+        "required": [
+          "date",
+          "is_closed",
+          "open_time",
+          "close_time"
+        ],
+        "title": "ScheduleExceptionEntry",
+        "type": "object"
+      },
+      "ScheduleExceptionUpdate": {
+        "description": "A date-specific override; it fully replaces the weekly rule (§5.3).",
+        "properties": {
+          "close_time": {
+            "anyOf": [
+              {
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Close Time"
+          },
+          "is_closed": {
+            "title": "Is Closed",
+            "type": "boolean"
+          },
+          "open_time": {
+            "anyOf": [
+              {
+                "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Open Time"
+          }
+        },
+        "required": [
+          "is_closed"
+        ],
+        "title": "ScheduleExceptionUpdate",
+        "type": "object"
+      },
+      "ScheduleExceptionsResponse": {
+        "properties": {
+          "exceptions": {
+            "items": {
+              "$ref": "#/components/schemas/ScheduleExceptionEntry"
+            },
+            "title": "Exceptions",
+            "type": "array"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "timezone",
+          "exceptions"
+        ],
+        "title": "ScheduleExceptionsResponse",
         "type": "object"
       },
       "SettingsUpdate": {
@@ -331,6 +540,46 @@
         ],
         "title": "VenueSummary",
         "type": "object"
+      },
+      "WeeklyScheduleResponse": {
+        "properties": {
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          },
+          "weekdays": {
+            "items": {
+              "$ref": "#/components/schemas/ScheduleDay"
+            },
+            "title": "Weekdays",
+            "type": "array"
+          }
+        },
+        "required": [
+          "timezone",
+          "weekdays"
+        ],
+        "title": "WeeklyScheduleResponse",
+        "type": "object"
+      },
+      "WeeklyScheduleUpdate": {
+        "description": "Full replacement of the weekly schedule (all seven weekdays).",
+        "properties": {
+          "weekdays": {
+            "items": {
+              "$ref": "#/components/schemas/ScheduleDay"
+            },
+            "maxItems": 7,
+            "minItems": 1,
+            "title": "Weekdays",
+            "type": "array"
+          }
+        },
+        "required": [
+          "weekdays"
+        ],
+        "title": "WeeklyScheduleUpdate",
+        "type": "object"
       }
     }
   },
@@ -446,6 +695,230 @@
         "summary": "Me",
         "tags": [
           "admin-account"
+        ]
+      }
+    },
+    "/api/admin/v1/schedule": {
+      "get": {
+        "description": "Return this venue's weekly schedule (all seven weekdays).",
+        "operationId": "get_weekly_schedule_api_admin_v1_schedule_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeeklyScheduleResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Weekly Schedule",
+        "tags": [
+          "admin-schedule"
+        ]
+      },
+      "put": {
+        "description": "Replace the weekly schedule, validating grid rules and adjacent overlaps.\n\nThe request must define every weekday; a shift that crosses midnight is\nexpressed as ``close_time < open_time`` (§5.2). A schedule whose adjacent\nshifts would overlap is rejected with ``SCHEDULE_OVERLAP`` (§5.4).",
+        "operationId": "put_weekly_schedule_api_admin_v1_schedule_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WeeklyScheduleUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeeklyScheduleResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Weekly Schedule",
+        "tags": [
+          "admin-schedule"
+        ]
+      }
+    },
+    "/api/admin/v1/schedule/business-day": {
+      "get": {
+        "description": "Return the computed state for a business date (§5.1, §5.6).\n\nWith no ``business_date`` the *current* business date is used — which may be\nyesterday's date while an overnight shift is still running.",
+        "operationId": "get_business_day_api_admin_v1_schedule_business_day_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "business_date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Business Date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BusinessDayResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Business Day",
+        "tags": [
+          "admin-schedule"
+        ]
+      }
+    },
+    "/api/admin/v1/schedule/exceptions": {
+      "get": {
+        "description": "Return this venue's date-specific schedule exceptions.",
+        "operationId": "get_exceptions_api_admin_v1_schedule_exceptions_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleExceptionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Exceptions",
+        "tags": [
+          "admin-schedule"
+        ]
+      }
+    },
+    "/api/admin/v1/schedule/exceptions/{business_date}": {
+      "delete": {
+        "description": "Delete the exception for one date, reverting to the weekly rule (§5.3).",
+        "operationId": "remove_exception_api_admin_v1_schedule_exceptions__business_date__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "business_date",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "title": "Business Date",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Remove Exception",
+        "tags": [
+          "admin-schedule"
+        ]
+      },
+      "put": {
+        "description": "Create or replace the exception for one business date (§5.3).",
+        "operationId": "put_exception_api_admin_v1_schedule_exceptions__business_date__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "business_date",
+            "required": true,
+            "schema": {
+              "format": "date",
+              "title": "Business Date",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScheduleExceptionUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleExceptionEntry"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Exception",
+        "tags": [
+          "admin-schedule"
         ]
       }
     },

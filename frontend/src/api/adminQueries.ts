@@ -8,22 +8,36 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  deleteScheduleException,
+  fetchBusinessDay,
   fetchMe,
+  fetchSchedule,
+  fetchScheduleExceptions,
   fetchSettings,
   login,
   logout,
   logoutAll,
+  updateSchedule,
   updateSettings,
+  upsertScheduleException,
   type LoginRequest,
   type MeResponse,
+  type ScheduleExceptionUpdate,
   type SettingsUpdate,
   type VenueSummary,
+  type WeeklyScheduleUpdate,
 } from "@/api/admin";
 
 export const adminKeys = {
   me: ["admin", "me"] as const,
   settings: ["admin", "settings"] as const,
+  schedule: ["admin", "schedule"] as const,
+  scheduleExceptions: ["admin", "schedule", "exceptions"] as const,
 };
+
+export function businessDayKey(date?: string) {
+  return ["admin", "schedule", "business-day", date ?? "current"] as const;
+}
 
 export function useMe() {
   return useQuery({
@@ -80,6 +94,64 @@ export function useUpdateSettings() {
       queryClient.setQueryData<MeResponse | null>(adminKeys.me, (previous) =>
         previous ? { ...previous, venue } : previous,
       );
+    },
+  });
+}
+
+export function useSchedule() {
+  return useQuery({
+    queryKey: adminKeys.schedule,
+    queryFn: ({ signal }) => fetchSchedule(signal),
+    retry: false,
+  });
+}
+
+export function useScheduleExceptions() {
+  return useQuery({
+    queryKey: adminKeys.scheduleExceptions,
+    queryFn: ({ signal }) => fetchScheduleExceptions(signal),
+    retry: false,
+  });
+}
+
+export function useBusinessDay(date?: string) {
+  return useQuery({
+    queryKey: businessDayKey(date),
+    queryFn: ({ signal }) => fetchBusinessDay(date, signal),
+    retry: false,
+  });
+}
+
+export function useUpdateSchedule() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (body: WeeklyScheduleUpdate) => updateSchedule(body),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: adminKeys.schedule });
+      void queryClient.invalidateQueries({ queryKey: ["admin", "schedule", "business-day"] });
+    },
+  });
+}
+
+export function useUpsertScheduleException() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ date, body }: { date: string; body: ScheduleExceptionUpdate }) =>
+      upsertScheduleException(date, body),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: adminKeys.scheduleExceptions });
+      void queryClient.invalidateQueries({ queryKey: ["admin", "schedule", "business-day"] });
+    },
+  });
+}
+
+export function useDeleteScheduleException() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (date: string) => deleteScheduleException(date),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: adminKeys.scheduleExceptions });
+      void queryClient.invalidateQueries({ queryKey: ["admin", "schedule", "business-day"] });
     },
   });
 }
