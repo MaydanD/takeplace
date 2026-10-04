@@ -6,7 +6,8 @@ TypeScript + Vite, база данных — PostgreSQL.
 Реализованы **Stage 1 — Foundation** (monorepo, PostgreSQL с ролями и таймаутами,
 Alembic, health, security headers, CORS, OpenAPI → TypeScript, тесты, CI),
 **Stage 2 — Tenant + Auth + CLI**, **Stage 3 — Schedule + Business Day**,
-**Stage 4 — Halls + Tables + Read-only Canvas** и **Stage 5 — Booking Core**:
+**Stage 4 — Halls + Tables + Read-only Canvas**, **Stage 5 — Booking Core**
+и **Stage 6 — Public Booking**:
 заведения (tenants), admin-аккаунт, server-side sessions, Argon2id, безопасные
 cookies, tenant isolation, операторский CLI, недельное расписание и business day,
 залы/столы и read-only схема, а также ядро бронирований — bookings со снимком
@@ -14,8 +15,8 @@ cookies, tenant isolation, операторский CLI, недельное ра
 `booking_events`, per-venue booking counter, idempotency по HMAC и concurrency
 suite.
 Двойная бронь запрещена технически: истина — constraint PostgreSQL, не проверка
-в приложении. Публичный поток брони и lifecycle (WAIT/OPEN/CLOSE) — следующие
-этапы.
+в приложении. Публичная страница `/b/:slug` позволяет гостю выбрать зал, стол и
+интервал и создать ONLINE-бронь. Lifecycle (WAIT/OPEN/CLOSE) — следующий этап.
 
 Источник истины — [`PROJECT-SPEC-v1.3.3.md`](PROJECT-SPEC-v1.3.3.md).
 Краткий operational-конспект — [`IMPLEMENTATION-GUARDRAILS.md`](IMPLEMENTATION-GUARDRAILS.md).
@@ -357,6 +358,37 @@ Raw-пароли и raw session tokens никогда не сохраняютс�
 
 ---
 
+## Публичное бронирование (Stage 6)
+
+- **UI `/b/:slug`** — публичная страница брони: выбор даты, зала, стола,
+  party size и интервала, гостевая форма, согласие с политикой и экран успеха.
+  Поддерживает mobile-верстку и корректно показывает stale-conflict, `429` и
+  выключенное онлайн-бронирование.
+- **Public API** (`/api/public/v1`) — отдельно от admin API, без session cookie;
+  tenant определяется только `slug` из пути (§34):
+  - `GET /venues/{slug}` — только public-данные venue/halls/tables;
+  - `GET /venues/{slug}/availability` — read-only снимок свободных слотов;
+  - `POST /venues/{slug}/bookings` — ONLINE create с `Idempotency-Key`.
+- **Общее ядро** — public create делегирует в то же Stage 5 ядро
+  (`create_public_booking`): единый порядок блокировок, снимок смены, capacity,
+  exclusion constraint, event и retry, что и admin-путь.
+- **Anti-abuse (§40)** — honeypot, CAPTCHA feature-flag seam (по умолчанию
+  выключен; без провайдера поведение fail-closed), soft per-process rate limits
+  (burst 10 s / 5, day 100), короткоживущий `request_ip_hmac` fingerprint и
+  агрегатный venue abuse-alert с cooldown. Alert виден в `/health/ops`,
+  `GET /api/admin/v1/system/status` и баннером админки. Raw IP нигде не
+  хранится, не логируется и не возвращается.
+- **Идемпотентность** — `Idempotency-Key` (UUID) переиспользуется при network
+  retry той же операции; тот же ключ с другим payload → `409
+  IDEMPOTENCY_KEY_REUSED`.
+- **Kill switch** — `online_booking_enabled=false` отвечает `409
+  ONLINE_BOOKING_DISABLED`, не блокируя admin PATCH settings.
+- **Тесты** — unit (`tests/test_public_*.py`), integration
+  (`tests/integration/test_public_api.py`) и PostgreSQL concurrency suite
+  (`tests/integration/test_public_concurrency.py`).
+
+---
+
 ## OpenAPI → TypeScript
 
 Backend — источник типов API. Процесс воспроизводим и generated-код не
@@ -403,6 +435,19 @@ pytest -m integration
 
 Прибор применяет `alembic upgrade head` к тестовой БД через реальный путь
 миграций. Без `TAKEPLACE_TEST_DATABASE_URL` интеграционные тесты пропускаются.
+
+Полный прогон (unit + integration) с авто-подготовкой тестовой БД делает helper,
+который сам выводит тестовый DSN и migrator password из окружения
+(`scripts/run_local_tests.py`), поэтому в нём нет захардкоженных секретов:
+
+```bash
+# Рекомендуется: внутри контейнера API (Compose)
+docker compose exec -T api python -m scripts.run_local_tests -q
+
+# Только integration/concurrency, из backend/ (нужны TAKEPLACE_DB_*
+# и доступная БД):
+cd backend && python -m scripts.run_local_tests -m integration
+```
 
 ### Frontend
 
