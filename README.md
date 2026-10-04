@@ -7,7 +7,7 @@ TypeScript + Vite, база данных — PostgreSQL.
 Alembic, health, security headers, CORS, OpenAPI → TypeScript, тесты, CI),
 **Stage 2 — Tenant + Auth + CLI**, **Stage 3 — Schedule + Business Day**,
 **Stage 4 — Halls + Tables + Read-only Canvas**, **Stage 5 — Booking Core**
-и **Stage 6 — Public Booking**:
+**Stage 6 — Public Booking** и **Stage 7 — Admin Booking Book**:
 заведения (tenants), admin-аккаунт, server-side sessions, Argon2id, безопасные
 cookies, tenant isolation, операторский CLI, недельное расписание и business day,
 залы/столы и read-only схема, а также ядро бронирований — bookings со снимком
@@ -16,7 +16,41 @@ cookies, tenant isolation, операторский CLI, недельное ра
 suite.
 Двойная бронь запрещена технически: истина — constraint PostgreSQL, не проверка
 в приложении. Публичная страница `/b/:slug` позволяет гостю выбрать зал, стол и
-интервал и создать ONLINE-бронь. Lifecycle (WAIT/OPEN/CLOSE) — следующий этап.
+интервал и создать ONLINE-бронь. Книга администратора — `/admin/bookings`.
+Полный lifecycle (WAIT/OPEN/CLOSE) — следующий этап; Stage 7 включает атомарный WALK_IN.
+
+## Книга броней (Stage 7)
+
+- Список по business date в timezone заведения, карточка и история из `booking_events`.
+- `GET /api/admin/v1/bookings`: cursor/limit (по умолчанию 50, максимум 200),
+  `business_date`, `status`, `source`, `table_id`, `phone` / `guest_phone_normalized`
+  (точный нормализованный телефон), `number`, `unresolved`, `same_network_as`.
+  Последний фильтр принимает ID ONLINE-брони своего venue и учитывает TTL отпечатка;
+  сам HMAC не возвращается. Столы страницы читаются пакетно.
+- `PATCH /api/admin/v1/bookings/{id}`: только `guest_name`, `guest_phone_raw`,
+  `guest_comment`, `party_size` и обязательная `expected_version`. Под booking lock
+  устаревшая версия получает `409 BOOKING_STALE`; успешная команда увеличивает
+  версию ровно на 1. Терминальные брони редактировать нельзя. Capacity проверяется
+  под блокировками всех плановых/live-столов. Событие содержит только имена полей.
+- Создание PHONE/VK/OTHER переиспользует booking core и admin HMAC idempotency.
+  Для VK телефон необязателен. WALK_IN с `open_immediately=true` создаёт OPEN,
+  occupancies, live rows и события одной транзакцией. `starts_at` вычисляется из
+  серверного времени после locks; переданный start игнорируется только для этого
+  режима. Минимум 45 минут, у конца смены — весь оставшийся grid-интервал.
+  Атомарное создание имеет версию 1, replay не добавляет событий.
+- UI: фильтры, поиск, pagination, выбор стола на схеме, создание, карточка,
+  guest edit, отмена, изменение времени и явный refresh при stale conflict.
+  При сетевой ошибке создания повторяются исходные payload и Idempotency-Key.
+- Миграция `20261004_0006`: минимальная `booking_live_tables`, tenant-safe FK
+  с business date и уникальность table/business date. OPEN overlay используется
+  public/admin create и availability; live capacity/archive защищены.
+- Полный lifecycle, пересадки, realtime, VK outbox и editor не добавлены.
+
+Проверки Stage 7: `tests/integration/test_booking_book.py`, `tests/test_walk_in.py`,
+`frontend/src/pages/BookingBookPage.test.tsx`. Запуск всей PostgreSQL suite:
+`docker compose exec -T api python -m scripts.run_local_tests -q`.
+Raw Uvicorn access logs выключены: structured middleware пишет путь без query
+string, чтобы поиск телефона не попадал в журнал. SQL bind parameters скрыты.
 
 Источник истины — [`PROJECT-SPEC-v1.3.3.md`](PROJECT-SPEC-v1.3.3.md).
 Краткий operational-конспект — [`IMPLEMENTATION-GUARDRAILS.md`](IMPLEMENTATION-GUARDRAILS.md).

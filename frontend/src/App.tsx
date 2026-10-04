@@ -8,6 +8,7 @@ import { HallsPage } from "@/pages/HallsPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { SchedulePage } from "@/pages/SchedulePage";
 import { SystemStatusPage } from "@/pages/SystemStatusPage";
+import { BookingBookPage } from "@/pages/BookingBookPage";
 
 /**
  * Application routing.
@@ -21,6 +22,14 @@ export function App() {
       <Route path="/b/:slug" element={<PublicBookingPage />} />
       <Route path="/" element={<SystemStatusPage />} />
       <Route path="/admin/login" element={<AdminLoginPage />} />
+      <Route
+        path="/admin/bookings"
+        element={
+          <RequireAdmin>
+            <BookingBookPage />
+          </RequireAdmin>
+        }
+      />
       <Route
         path="/admin"
         element={

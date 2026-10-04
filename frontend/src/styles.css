@@ -9,6 +9,98 @@
   line-height: 1.5;
 }
 
+.page.booking-book {
+  max-width: 90rem;
+}
+.booking-book .field input,
+.booking-book .field select,
+.booking-book .field textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #a0a5b0;
+  border-radius: 0.5rem;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+}
+.booking-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: start;
+  margin-top: 1.5rem;
+}
+.booking-workspace > :only-child {
+  grid-column: 1 / -1;
+}
+.booking-form-grid {
+  border: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 1rem;
+  align-items: end;
+}
+.booking-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 1rem;
+  margin-block: 1rem;
+}
+.booking-tables {
+  display: grid;
+  gap: 0.4rem;
+}
+.booking-row {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+  margin-bottom: 0.65rem;
+  background: transparent;
+  color: inherit;
+  border: 1px solid #a0a5b0;
+  border-radius: 0.5rem;
+}
+.booking-row--selected {
+  border: 2px solid #3479d6;
+}
+.booking-row small,
+.hint {
+  opacity: 0.75;
+}
+.booking-overdue {
+  display: block;
+  color: #b65c16;
+}
+.booking-comment {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.booking-history {
+  padding-left: 1.4rem;
+}
+.booking-history li {
+  margin-block: 1rem;
+}
+.booking-history pre {
+  white-space: pre-wrap;
+  font-size: 0.8rem;
+}
+@media (max-width: 900px) {
+  .booking-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .booking-card {
+    grid-row: 1;
+  }
+}
+
 body {
   margin: 0;
   min-height: 100vh;

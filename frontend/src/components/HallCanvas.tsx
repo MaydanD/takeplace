@@ -117,15 +117,19 @@ export function HallCanvas({
           role={onSelect ? "button" : undefined}
           aria-label={onSelect ? `Стол ${table.number}, мест: ${table.capacity}` : undefined}
           aria-pressed={onSelect ? table.id === selectedTableId : undefined}
-          aria-disabled={onSelect ? !availableTableIds?.has(table.id) : undefined}
-          tabIndex={onSelect && availableTableIds?.has(table.id) ? 0 : undefined}
+          aria-disabled={
+            onSelect ? !!availableTableIds && !availableTableIds.has(table.id) : undefined
+          }
+          tabIndex={
+            onSelect && (!availableTableIds || availableTableIds.has(table.id)) ? 0 : undefined
+          }
           onClick={() => {
-            if (availableTableIds?.has(table.id)) onSelect?.(table.id);
+            if (!availableTableIds || availableTableIds.has(table.id)) onSelect?.(table.id);
           }}
           onKeyDown={(event) => {
             if (
               onSelect &&
-              availableTableIds?.has(table.id) &&
+              (!availableTableIds || availableTableIds.has(table.id)) &&
               (event.key === "Enter" || event.key === " ")
             ) {
               event.preventDefault();
