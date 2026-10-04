@@ -69,6 +69,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/v1/halls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Halls
+         * @description List this venue's halls (archived halls are hidden unless requested).
+         */
+        get: operations["get_halls_api_admin_v1_halls_get"];
+        put?: never;
+        /**
+         * Post Hall
+         * @description Create a hall (canvas) for this venue.
+         */
+        post: operations["post_hall_api_admin_v1_halls_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/v1/halls/{hall_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Hall Detail
+         * @description Return one hall with its tables (including archived) and static elements.
+         */
+        get: operations["get_hall_detail_api_admin_v1_halls__hall_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Patch Hall
+         * @description Update a hall's name, canvas size or operational bookability.
+         *
+         *     A canvas-size change is a layout-owned edit and bumps ``layout_revision``;
+         *     ``is_bookable`` never does (�31).
+         */
+        patch: operations["patch_hall_api_admin_v1_halls__hall_id__patch"];
+        trace?: never;
+    };
+    "/api/admin/v1/halls/{hall_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Archive Hall
+         * @description Archive a hall; blocked while it still has non-archived tables (�29.5).
+         */
+        post: operations["post_archive_hall_api_admin_v1_halls__hall_id__archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/v1/me": {
         parameters: {
             query?: never;
@@ -214,6 +285,66 @@ export interface paths {
         patch: operations["patch_settings_api_admin_v1_settings_patch"];
         trace?: never;
     };
+    "/api/admin/v1/tables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Tables
+         * @description Flat list of this venue's tables for the list view, with hall names.
+         */
+        get: operations["get_tables_api_admin_v1_tables_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/v1/tables/{table_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Patch Table
+         * @description Operational ``is_bookable`` toggle; geometry is owned by layout-save (�35).
+         */
+        patch: operations["patch_table_api_admin_v1_tables__table_id__patch"];
+        trace?: never;
+    };
+    "/api/admin/v1/tables/{table_id}/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Archive Table
+         * @description Archive a table; the live/future-occupancy guard lands with Stage 5 (�29.3).
+         */
+        post: operations["post_archive_table_api_admin_v1_tables__table_id__archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health/live": {
         parameters: {
             query?: never;
@@ -292,6 +423,34 @@ export interface components {
             /** Login */
             login: string;
         };
+        /** BarElement */
+        BarElement: {
+            /** Height */
+            height: number;
+            /** Label */
+            label?: string | null;
+            /**
+             * Rotation
+             * @default 0
+             */
+            rotation: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "bar";
+            /** Width */
+            width: number;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+            /**
+             * Z Index
+             * @default 0
+             */
+            z_index: number;
+        };
         /**
          * BusinessDayResponse
          * @description Computed schedule state for one business date (PROJECT-SPEC �5.1, �5.6).
@@ -322,6 +481,91 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** HallCreate */
+        HallCreate: {
+            /**
+             * Canvas Height
+             * @default 800
+             */
+            canvas_height: number;
+            /**
+             * Canvas Width
+             * @default 1200
+             */
+            canvas_width: number;
+            /**
+             * Is Bookable
+             * @default true
+             */
+            is_bookable: boolean;
+            /** Name */
+            name: string;
+        };
+        /**
+         * HallDetail
+         * @description A hall with its tables and static elements (read-only canvas source).
+         */
+        HallDetail: {
+            /** Archived At */
+            archived_at: string | null;
+            /** Canvas Height */
+            canvas_height: number;
+            /** Canvas Width */
+            canvas_width: number;
+            /** Id */
+            id: number;
+            /** Is Bookable */
+            is_bookable: boolean;
+            /** Layout Revision */
+            layout_revision: number;
+            /** Name */
+            name: string;
+            /** Static Elements */
+            static_elements: (components["schemas"]["WallElement"] | components["schemas"]["StageElement"] | components["schemas"]["BarElement"] | components["schemas"]["ZoneElement"] | components["schemas"]["TextElement"])[];
+            /** Tables */
+            tables: components["schemas"]["TableSummary"][];
+        };
+        /**
+         * HallSummary
+         * @description Hall metadata (canvas size, revision, archive state).
+         */
+        HallSummary: {
+            /** Archived At */
+            archived_at: string | null;
+            /** Canvas Height */
+            canvas_height: number;
+            /** Canvas Width */
+            canvas_width: number;
+            /** Id */
+            id: number;
+            /** Is Bookable */
+            is_bookable: boolean;
+            /** Layout Revision */
+            layout_revision: number;
+            /** Name */
+            name: string;
+            /** Table Count */
+            table_count: number;
+        };
+        /**
+         * HallUpdate
+         * @description Editable hall fields. ``is_bookable`` does not bump the layout revision.
+         */
+        HallUpdate: {
+            /** Canvas Height */
+            canvas_height?: number | null;
+            /** Canvas Width */
+            canvas_width?: number | null;
+            /** Is Bookable */
+            is_bookable?: boolean | null;
+            /** Name */
+            name?: string | null;
+        };
+        /** HallsResponse */
+        HallsResponse: {
+            /** Halls */
+            halls: components["schemas"]["HallSummary"][];
         };
         /** LivenessResponse */
         LivenessResponse: {
@@ -446,10 +690,114 @@ export interface components {
             /** Phone */
             phone?: string | null;
         };
+        /** StageElement */
+        StageElement: {
+            /** Height */
+            height: number;
+            /** Label */
+            label?: string | null;
+            /**
+             * Rotation
+             * @default 0
+             */
+            rotation: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "stage";
+            /** Width */
+            width: number;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+            /**
+             * Z Index
+             * @default 0
+             */
+            z_index: number;
+        };
         /** StatusResponse */
         StatusResponse: {
             /** Status */
             status: string;
+        };
+        /**
+         * TableSummary
+         * @description Table geometry and state (PROJECT-SPEC �6.5).
+         */
+        TableSummary: {
+            /** Archived At */
+            archived_at: string | null;
+            /** Capacity */
+            capacity: number;
+            /** Hall Id */
+            hall_id: number;
+            /** Hall Name */
+            hall_name?: string | null;
+            /** Height */
+            height: number;
+            /** Id */
+            id: number;
+            /** Is Bookable */
+            is_bookable: boolean;
+            /** Number */
+            number: string;
+            /** Rotation */
+            rotation: number;
+            /** Shape */
+            shape: string;
+            /** Width */
+            width: number;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+            /** Z Index */
+            z_index: number;
+        };
+        /**
+         * TableUpdate
+         * @description Operational table toggle. Geometry is owned by layout-save, not here (�35).
+         */
+        TableUpdate: {
+            /** Is Bookable */
+            is_bookable: boolean;
+        };
+        /** TablesResponse */
+        TablesResponse: {
+            /** Tables */
+            tables: components["schemas"]["TableSummary"][];
+        };
+        /** TextElement */
+        TextElement: {
+            /**
+             * Font Size
+             * @default 14
+             */
+            font_size: number;
+            /**
+             * Rotation
+             * @default 0
+             */
+            rotation: number;
+            /** Text */
+            text: string;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "text";
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+            /**
+             * Z Index
+             * @default 0
+             */
+            z_index: number;
         };
         /** ValidationError */
         ValidationError: {
@@ -486,6 +834,32 @@ export interface components {
             /** Timezone */
             timezone: string;
         };
+        /** WallElement */
+        WallElement: {
+            /** Height */
+            height: number;
+            /**
+             * Rotation
+             * @default 0
+             */
+            rotation: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "wall";
+            /** Width */
+            width: number;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+            /**
+             * Z Index
+             * @default 0
+             */
+            z_index: number;
+        };
         /** WeeklyScheduleResponse */
         WeeklyScheduleResponse: {
             /** Timezone */
@@ -500,6 +874,34 @@ export interface components {
         WeeklyScheduleUpdate: {
             /** Weekdays */
             weekdays: components["schemas"]["ScheduleDay"][];
+        };
+        /** ZoneElement */
+        ZoneElement: {
+            /** Height */
+            height: number;
+            /** Label */
+            label?: string | null;
+            /**
+             * Rotation
+             * @default 0
+             */
+            rotation: number;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            type: "zone";
+            /** Width */
+            width: number;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+            /**
+             * Z Index
+             * @default 0
+             */
+            z_index: number;
         };
     };
     responses: never;
@@ -579,6 +981,167 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StatusResponse"];
+                };
+            };
+        };
+    };
+    get_halls_api_admin_v1_halls_get: {
+        parameters: {
+            query?: {
+                include_archived?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HallsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_hall_api_admin_v1_halls_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HallCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HallSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_hall_detail_api_admin_v1_halls__hall_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hall_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HallDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_hall_api_admin_v1_halls__hall_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hall_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HallUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HallSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_archive_hall_api_admin_v1_halls__hall_id__archive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hall_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HallSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -811,6 +1374,104 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VenueSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_tables_api_admin_v1_tables_get: {
+        parameters: {
+            query?: {
+                hall_id?: number | null;
+                include_archived?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TablesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_table_api_admin_v1_tables__table_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                table_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TableUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_archive_table_api_admin_v1_tables__table_id__archive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                table_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TableSummary"];
                 };
             };
             /** @description Validation Error */

@@ -25,6 +25,69 @@
         "title": "AdminSummary",
         "type": "object"
       },
+      "BarElement": {
+        "additionalProperties": false,
+        "properties": {
+          "height": {
+            "exclusiveMinimum": 0.0,
+            "title": "Height",
+            "type": "number"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "rotation": {
+            "default": 0,
+            "maximum": 360.0,
+            "minimum": 0.0,
+            "title": "Rotation",
+            "type": "number"
+          },
+          "type": {
+            "const": "bar",
+            "title": "Type",
+            "type": "string"
+          },
+          "width": {
+            "exclusiveMinimum": 0.0,
+            "title": "Width",
+            "type": "number"
+          },
+          "x": {
+            "minimum": 0.0,
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "minimum": 0.0,
+            "title": "Y",
+            "type": "number"
+          },
+          "z_index": {
+            "default": 0,
+            "title": "Z Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "type",
+          "width",
+          "height"
+        ],
+        "title": "BarElement",
+        "type": "object"
+      },
       "BusinessDayResponse": {
         "description": "Computed schedule state for one business date (PROJECT-SPEC §5.1, §5.6).",
         "properties": {
@@ -98,6 +161,264 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HallCreate": {
+        "properties": {
+          "canvas_height": {
+            "default": 800,
+            "maximum": 1000000.0,
+            "minimum": 1.0,
+            "title": "Canvas Height",
+            "type": "integer"
+          },
+          "canvas_width": {
+            "default": 1200,
+            "maximum": 1000000.0,
+            "minimum": 1.0,
+            "title": "Canvas Width",
+            "type": "integer"
+          },
+          "is_bookable": {
+            "default": true,
+            "title": "Is Bookable",
+            "type": "boolean"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "HallCreate",
+        "type": "object"
+      },
+      "HallDetail": {
+        "description": "A hall with its tables and static elements (read-only canvas source).",
+        "properties": {
+          "archived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
+          "canvas_height": {
+            "title": "Canvas Height",
+            "type": "integer"
+          },
+          "canvas_width": {
+            "title": "Canvas Width",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_bookable": {
+            "title": "Is Bookable",
+            "type": "boolean"
+          },
+          "layout_revision": {
+            "title": "Layout Revision",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "static_elements": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "bar": "#/components/schemas/BarElement",
+                  "stage": "#/components/schemas/StageElement",
+                  "text": "#/components/schemas/TextElement",
+                  "wall": "#/components/schemas/WallElement",
+                  "zone": "#/components/schemas/ZoneElement"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/WallElement"
+                },
+                {
+                  "$ref": "#/components/schemas/StageElement"
+                },
+                {
+                  "$ref": "#/components/schemas/BarElement"
+                },
+                {
+                  "$ref": "#/components/schemas/ZoneElement"
+                },
+                {
+                  "$ref": "#/components/schemas/TextElement"
+                }
+              ]
+            },
+            "title": "Static Elements",
+            "type": "array"
+          },
+          "tables": {
+            "items": {
+              "$ref": "#/components/schemas/TableSummary"
+            },
+            "title": "Tables",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "is_bookable",
+          "canvas_width",
+          "canvas_height",
+          "layout_revision",
+          "archived_at",
+          "static_elements",
+          "tables"
+        ],
+        "title": "HallDetail",
+        "type": "object"
+      },
+      "HallSummary": {
+        "description": "Hall metadata (canvas size, revision, archive state).",
+        "properties": {
+          "archived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
+          "canvas_height": {
+            "title": "Canvas Height",
+            "type": "integer"
+          },
+          "canvas_width": {
+            "title": "Canvas Width",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_bookable": {
+            "title": "Is Bookable",
+            "type": "boolean"
+          },
+          "layout_revision": {
+            "title": "Layout Revision",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "table_count": {
+            "title": "Table Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "is_bookable",
+          "canvas_width",
+          "canvas_height",
+          "layout_revision",
+          "archived_at",
+          "table_count"
+        ],
+        "title": "HallSummary",
+        "type": "object"
+      },
+      "HallUpdate": {
+        "description": "Editable hall fields. ``is_bookable`` does not bump the layout revision.",
+        "properties": {
+          "canvas_height": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Canvas Height"
+          },
+          "canvas_width": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Canvas Width"
+          },
+          "is_bookable": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Is Bookable"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "title": "HallUpdate",
+        "type": "object"
+      },
+      "HallsResponse": {
+        "properties": {
+          "halls": {
+            "items": {
+              "$ref": "#/components/schemas/HallSummary"
+            },
+            "title": "Halls",
+            "type": "array"
+          }
+        },
+        "required": [
+          "halls"
+        ],
+        "title": "HallsResponse",
         "type": "object"
       },
       "LivenessResponse": {
@@ -425,6 +746,69 @@
         "title": "SettingsUpdate",
         "type": "object"
       },
+      "StageElement": {
+        "additionalProperties": false,
+        "properties": {
+          "height": {
+            "exclusiveMinimum": 0.0,
+            "title": "Height",
+            "type": "number"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "rotation": {
+            "default": 0,
+            "maximum": 360.0,
+            "minimum": 0.0,
+            "title": "Rotation",
+            "type": "number"
+          },
+          "type": {
+            "const": "stage",
+            "title": "Type",
+            "type": "string"
+          },
+          "width": {
+            "exclusiveMinimum": 0.0,
+            "title": "Width",
+            "type": "number"
+          },
+          "x": {
+            "minimum": 0.0,
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "minimum": 0.0,
+            "title": "Y",
+            "type": "number"
+          },
+          "z_index": {
+            "default": 0,
+            "title": "Z Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "type",
+          "width",
+          "height"
+        ],
+        "title": "StageElement",
+        "type": "object"
+      },
       "StatusResponse": {
         "properties": {
           "status": {
@@ -436,6 +820,182 @@
           "status"
         ],
         "title": "StatusResponse",
+        "type": "object"
+      },
+      "TableSummary": {
+        "description": "Table geometry and state (PROJECT-SPEC §6.5).",
+        "properties": {
+          "archived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
+          "capacity": {
+            "title": "Capacity",
+            "type": "integer"
+          },
+          "hall_id": {
+            "title": "Hall Id",
+            "type": "integer"
+          },
+          "hall_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hall Name"
+          },
+          "height": {
+            "title": "Height",
+            "type": "number"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_bookable": {
+            "title": "Is Bookable",
+            "type": "boolean"
+          },
+          "number": {
+            "title": "Number",
+            "type": "string"
+          },
+          "rotation": {
+            "title": "Rotation",
+            "type": "number"
+          },
+          "shape": {
+            "title": "Shape",
+            "type": "string"
+          },
+          "width": {
+            "title": "Width",
+            "type": "number"
+          },
+          "x": {
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "title": "Y",
+            "type": "number"
+          },
+          "z_index": {
+            "title": "Z Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "hall_id",
+          "number",
+          "capacity",
+          "is_bookable",
+          "archived_at",
+          "x",
+          "y",
+          "width",
+          "height",
+          "rotation",
+          "shape",
+          "z_index"
+        ],
+        "title": "TableSummary",
+        "type": "object"
+      },
+      "TableUpdate": {
+        "description": "Operational table toggle. Geometry is owned by layout-save, not here (§35).",
+        "properties": {
+          "is_bookable": {
+            "title": "Is Bookable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "is_bookable"
+        ],
+        "title": "TableUpdate",
+        "type": "object"
+      },
+      "TablesResponse": {
+        "properties": {
+          "tables": {
+            "items": {
+              "$ref": "#/components/schemas/TableSummary"
+            },
+            "title": "Tables",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tables"
+        ],
+        "title": "TablesResponse",
+        "type": "object"
+      },
+      "TextElement": {
+        "additionalProperties": false,
+        "properties": {
+          "font_size": {
+            "default": 14,
+            "exclusiveMinimum": 0.0,
+            "maximum": 200.0,
+            "title": "Font Size",
+            "type": "number"
+          },
+          "rotation": {
+            "default": 0,
+            "maximum": 360.0,
+            "minimum": 0.0,
+            "title": "Rotation",
+            "type": "number"
+          },
+          "text": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          },
+          "type": {
+            "const": "text",
+            "title": "Type",
+            "type": "string"
+          },
+          "x": {
+            "minimum": 0.0,
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "minimum": 0.0,
+            "title": "Y",
+            "type": "number"
+          },
+          "z_index": {
+            "default": 0,
+            "title": "Z Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "x",
+          "y",
+          "text"
+        ],
+        "title": "TextElement",
         "type": "object"
       },
       "ValidationError": {
@@ -541,6 +1101,57 @@
         "title": "VenueSummary",
         "type": "object"
       },
+      "WallElement": {
+        "additionalProperties": false,
+        "properties": {
+          "height": {
+            "exclusiveMinimum": 0.0,
+            "title": "Height",
+            "type": "number"
+          },
+          "rotation": {
+            "default": 0,
+            "maximum": 360.0,
+            "minimum": 0.0,
+            "title": "Rotation",
+            "type": "number"
+          },
+          "type": {
+            "const": "wall",
+            "title": "Type",
+            "type": "string"
+          },
+          "width": {
+            "exclusiveMinimum": 0.0,
+            "title": "Width",
+            "type": "number"
+          },
+          "x": {
+            "minimum": 0.0,
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "minimum": 0.0,
+            "title": "Y",
+            "type": "number"
+          },
+          "z_index": {
+            "default": 0,
+            "title": "Z Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "type",
+          "width",
+          "height"
+        ],
+        "title": "WallElement",
+        "type": "object"
+      },
       "WeeklyScheduleResponse": {
         "properties": {
           "timezone": {
@@ -579,6 +1190,69 @@
           "weekdays"
         ],
         "title": "WeeklyScheduleUpdate",
+        "type": "object"
+      },
+      "ZoneElement": {
+        "additionalProperties": false,
+        "properties": {
+          "height": {
+            "exclusiveMinimum": 0.0,
+            "title": "Height",
+            "type": "number"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "rotation": {
+            "default": 0,
+            "maximum": 360.0,
+            "minimum": 0.0,
+            "title": "Rotation",
+            "type": "number"
+          },
+          "type": {
+            "const": "zone",
+            "title": "Type",
+            "type": "string"
+          },
+          "width": {
+            "exclusiveMinimum": 0.0,
+            "title": "Width",
+            "type": "number"
+          },
+          "x": {
+            "minimum": 0.0,
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "minimum": 0.0,
+            "title": "Y",
+            "type": "number"
+          },
+          "z_index": {
+            "default": 0,
+            "title": "Z Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "x",
+          "y",
+          "type",
+          "width",
+          "height"
+        ],
+        "title": "ZoneElement",
         "type": "object"
       }
     }
@@ -673,6 +1347,227 @@
         "summary": "Logout All",
         "tags": [
           "admin-auth"
+        ]
+      }
+    },
+    "/api/admin/v1/halls": {
+      "get": {
+        "description": "List this venue's halls (archived halls are hidden unless requested).",
+        "operationId": "get_halls_api_admin_v1_halls_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "include_archived",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Archived",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HallsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Halls",
+        "tags": [
+          "admin-halls"
+        ]
+      },
+      "post": {
+        "description": "Create a hall (canvas) for this venue.",
+        "operationId": "post_hall_api_admin_v1_halls_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HallCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HallSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Hall",
+        "tags": [
+          "admin-halls"
+        ]
+      }
+    },
+    "/api/admin/v1/halls/{hall_id}": {
+      "get": {
+        "description": "Return one hall with its tables (including archived) and static elements.",
+        "operationId": "get_hall_detail_api_admin_v1_halls__hall_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "hall_id",
+            "required": true,
+            "schema": {
+              "title": "Hall Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HallDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Hall Detail",
+        "tags": [
+          "admin-halls"
+        ]
+      },
+      "patch": {
+        "description": "Update a hall's name, canvas size or operational bookability.\n\nA canvas-size change is a layout-owned edit and bumps ``layout_revision``;\n``is_bookable`` never does (§31).",
+        "operationId": "patch_hall_api_admin_v1_halls__hall_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "hall_id",
+            "required": true,
+            "schema": {
+              "title": "Hall Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HallUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HallSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Hall",
+        "tags": [
+          "admin-halls"
+        ]
+      }
+    },
+    "/api/admin/v1/halls/{hall_id}/archive": {
+      "post": {
+        "description": "Archive a hall; blocked while it still has non-archived tables (§29.5).",
+        "operationId": "post_archive_hall_api_admin_v1_halls__hall_id__archive_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "hall_id",
+            "required": true,
+            "schema": {
+              "title": "Hall Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HallSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Archive Hall",
+        "tags": [
+          "admin-halls"
         ]
       }
     },
@@ -981,6 +1876,162 @@
         "summary": "Patch Settings",
         "tags": [
           "admin-settings"
+        ]
+      }
+    },
+    "/api/admin/v1/tables": {
+      "get": {
+        "description": "Flat list of this venue's tables for the list view, with hall names.",
+        "operationId": "get_tables_api_admin_v1_tables_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "hall_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hall Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_archived",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Archived",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TablesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Tables",
+        "tags": [
+          "admin-halls"
+        ]
+      }
+    },
+    "/api/admin/v1/tables/{table_id}": {
+      "patch": {
+        "description": "Operational ``is_bookable`` toggle; geometry is owned by layout-save (§35).",
+        "operationId": "patch_table_api_admin_v1_tables__table_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "table_id",
+            "required": true,
+            "schema": {
+              "title": "Table Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TableUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TableSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Table",
+        "tags": [
+          "admin-halls"
+        ]
+      }
+    },
+    "/api/admin/v1/tables/{table_id}/archive": {
+      "post": {
+        "description": "Archive a table; the live/future-occupancy guard lands with Stage 5 (§29.3).",
+        "operationId": "post_archive_table_api_admin_v1_tables__table_id__archive_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "table_id",
+            "required": true,
+            "schema": {
+              "title": "Table Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TableSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Archive Table",
+        "tags": [
+          "admin-halls"
         ]
       }
     },

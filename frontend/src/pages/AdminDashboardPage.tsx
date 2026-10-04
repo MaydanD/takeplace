@@ -63,6 +63,9 @@ export function AdminDashboardPage() {
       <header className="page-header">
         <h1>Админка</h1>
         <div className="page-header__actions">
+          <Link to="/admin/halls" className="button-link">
+            Залы
+          </Link>
           <Link to="/admin/schedule" className="button-link">
             Расписание
           </Link>

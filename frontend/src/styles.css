@@ -175,6 +175,104 @@ body {
   font-weight: 600;
 }
 
+.page--wide {
+  max-width: 64rem;
+}
+
+.card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.hall-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 32rem;
+  border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, currentColor 2%, transparent);
+  color: #1c1e21;
+}
+
+@media (prefers-color-scheme: dark) {
+  .hall-canvas {
+    color: #e8eaed;
+  }
+}
+
+.hall-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+}
+
+.hall-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.hall-tab--active {
+  border-color: #2f9e6a;
+  background: color-mix(in srgb, #2f9e6a 18%, transparent);
+}
+
+.hall-tab__count {
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+.inline-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 0.5rem;
+}
+
+.muted {
+  opacity: 0.75;
+  font-size: 0.9rem;
+}
+
+.callout {
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  margin: 0 0 1rem;
+}
+
+.callout--error {
+  color: #b42318;
+  background: color-mix(in srgb, #b42318 12%, transparent);
+}
+
+.table-view {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+.table-view th,
+.table-view td {
+  text-align: left;
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.table-view th {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+}
+
 button {
   padding: 0.5rem 1rem;
   border-radius: 0.5rem;

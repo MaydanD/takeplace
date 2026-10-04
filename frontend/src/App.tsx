@@ -3,6 +3,7 @@ import { Route, Routes } from "react-router-dom";
 import { RequireAdmin } from "@/components/RequireAdmin";
 import { AdminDashboardPage } from "@/pages/AdminDashboardPage";
 import { AdminLoginPage } from "@/pages/AdminLoginPage";
+import { HallsPage } from "@/pages/HallsPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { SchedulePage } from "@/pages/SchedulePage";
 import { SystemStatusPage } from "@/pages/SystemStatusPage";
@@ -31,6 +32,14 @@ export function App() {
         element={
           <RequireAdmin>
             <SchedulePage />
+          </RequireAdmin>
+        }
+      />
+      <Route
+        path="/admin/halls"
+        element={
+          <RequireAdmin>
+            <HallsPage />
           </RequireAdmin>
         }
       />
