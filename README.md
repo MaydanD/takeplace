@@ -3,10 +3,13 @@
 Онлайн-бронирование столов для заведений. Backend — FastAPI, frontend — React +
 TypeScript + Vite, база данных — PostgreSQL.
 
-Этот репозиторий сейчас содержит **Stage 1 — Foundation**: рабочую
-инфраструктуру (monorepo, PostgreSQL с ролями и таймаутами, Alembic, health,
-security headers, CORS, OpenAPI → TypeScript, тесты, CI). Бизнес-логика
-бронирования появится на следующих этапах.
+Сейчас реализованы **Stage 1 — Foundation** (инфраструктура: monorepo, PostgreSQL
+с ролями и таймаутами, Alembic, health, security headers, CORS, OpenAPI →
+TypeScript, тесты, CI) и **Stage 2 — Tenant + Auth + CLI**: заведения (tenants),
+admin-аккаунт, server-side sessions, Argon2id, безопасные cookies, tenant
+isolation, операторский CLI, валидация timezone и минимальная изолированная
+админка (login + настройки заведения). Бизнес-логика бронирования появится на
+следующих этапах.
 
 Источник истины — [`PROJECT-SPEC-v1.3.3.md`](PROJECT-SPEC-v1.3.3.md).
 Краткий operational-конспект — [`IMPLEMENTATION-GUARDRAILS.md`](IMPLEMENTATION-GUARDRAILS.md).
@@ -67,6 +70,47 @@ Frontend в dev общается с backend через Vite-прокси (`/api`
 docker compose down          # сохранить данные
 docker compose down -v       # удалить и данные PostgreSQL (пересоздаст роли)
 ```
+
+---
+
+## Управление заведениями (CLI)
+
+Superadmin UI в v1 нет: заведения создаются и обслуживаются из командной строки
+(PROJECT-SPEC §53). CLI работает от роли приложения (`takeplace_app`) и выполняет
+только DML.
+
+В Docker:
+
+```bash
+docker compose run --rm api takeplace list-venues
+docker compose run --rm api takeplace create-venue \
+  --slug dragon --name "Dragon Hall" --timezone Europe/Moscow --login dragon-admin
+```
+
+Локально: `cd backend && takeplace ...` (или `python -m app.cli ...`).
+
+| Команда                | Назначение                                                             |
+| ---------------------- | ---------------------------------------------------------------------- |
+| `create-venue`         | создаёт venue + admin account; валидирует slug и IANA timezone         |
+| `reset-password <venue>` | меняет пароль и инвалидирует **все** sessions заведения              |
+| `suspend-venue <venue>` | выключает venue и отзывает все его sessions                           |
+| `enable-venue <venue>` | включает venue обратно                                                 |
+| `list-venues`          | список заведений и их статусов                                         |
+
+`<venue>` — это id или slug. Флаги `create-venue`: `--address`, `--phone`,
+`--online-booking` (включить онлайн-бронирование сразу) и `--password` (задать
+пароль вручную вместо генерации).
+
+По умолчанию `create-venue` и `reset-password` генерируют криптографически
+случайный пароль и печатают его **один раз**.
+
+`create-venue` валидирует timezone через `zoneinfo` и отклоняет зоны с UTC-offset
+переходами в rolling horizon **400 дней**; той же проверкой каждые сутки
+сканируются активные заведения и поднимается `/health/ops` (§53, §47).
+
+> Онбординг полного набора (booking counter, базовое расписание, первый зал)
+> выполняется на этапах, которым принадлежат эти таблицы (Stage 3–4); таблиц
+> ещё не существует, поэтому CLI их не создаёт.
 
 ---
 
@@ -134,7 +178,43 @@ bash scripts/migrate.sh local    # применить Alembic напрямую (
 
 - Baseline-миграция устанавливает расширение `btree_gist`, необходимое для
   exclusion constraint в ядре бронирования (§12, §45).
+- `20261003_0002` добавляет `venues`, `admin_accounts`, `admin_sessions` с
+  CHECK/UNIQUE/индексами из §6.1–6.3.
 - Проверка schema drift: `cd backend && alembic check`.
+
+Инварианты Stage 2 держатся в самой БД (последний арбитр, §44): формат и reserved-
+список slug — CHECK; один admin-аккаунт на venue и глобально уникальный login —
+UNIQUE; `admin_sessions.token_hash` — UNIQUE (хранится только хэш);
+`expires_at > created_at` — CHECK; составной `UNIQUE (id, venue_id)` готовит
+tenant-safe FK для будущих таблиц (§7.2).
+
+---
+
+## Авторизация админки и tenant isolation
+
+- Пароли — **Argon2id**, hashing/verify вне event loop в bounded pool (§39.1).
+- Сессии — server-side (`admin_sessions`); raw token живёт только в cookie
+  `__Host-takeplace_admin` (`HttpOnly`, `Secure`, `SameSite=Strict`, `Path=/`,
+  без `Domain`), в БД хранится только SHA-256 хэш (§39.2).
+- Браузеры отклоняют `__Host-` + `Secure` cookie на обычном http-origin
+  (включая `http://localhost`), поэтому вне production сессионная cookie
+  ослабляется: имя `takeplace_admin`, без `Secure`. Production-валидация
+  запрещает такую настройку — там всегда `__Host-` + `Secure` (§39.2).
+- Абсолютный TTL 30 дней **без** sliding-продления; `last_seen_at` обновляется не
+  чаще раза в ~60 секунд на сессию (§6.3).
+- CSRF — проверка `Origin` на всех изменяющих admin-запросах (§39.3).
+- Endpoints: `POST /api/admin/v1/auth/login|logout|logout-all`, `GET /me`,
+  `GET/PATCH /settings`.
+- Неверный login и неверный пароль дают **одинаковый** ответ; до дорогого Argon2
+  применяется дешёвый per-IP burst-limit, затем основной rate limit по `login + IP`
+  (§39.5). Ключи лимитеров — HMAC-отпечатки, raw IP не сохраняется.
+
+Tenant для admin-запроса определяется **только из session**: клиент не может
+выбрать другой venue ни параметром, ни телом запроса (§7.1). Изоляция закреплена
+FK/UNIQUE в БД и покрыта интеграционными тестами (§7.3).
+
+Raw-пароли и raw session tokens никогда не сохраняются, не логируются и не
+возвращаются в API (§39.7); structured logging редактирует PII/секреты.
 
 ---
 
@@ -215,11 +295,13 @@ bash scripts/verify.sh
 takeplace/
 ├─ backend/
 │  ├─ app/
-│  │  ├─ api/            # /api/public/v1, /api/admin/v1, health
-│  │  ├─ domain/         # чистая бизнес-логика (следующие этапы)
-│  │  ├─ services/       # транзакции и блокировки (следующие этапы)
+│  │  ├─ api/            # /api/public/v1, /api/admin/v1 (auth/me/settings), health
+│  │  ├─ domain/         # slug и timezone-валидация
+│  │  ├─ security/       # Argon2id, session tokens, rate limit, cookies
+│  │  ├─ services/       # venues, auth (sessions), timezone capability
 │  │  ├─ queries/        # read-модели
-│  │  ├─ db/             # engine, session, base, time-helper
+│  │  ├─ db/             # engine, session, base, time-helper, models/
+│  │  ├─ cli.py          # операторский CLI (§53)
 │  │  ├─ realtime/       # SSE + LISTEN/NOTIFY (Stage 9)
 │  │  ├─ integrations/vk/# VK-адаптер (Stage 12)
 │  │  ├─ worker/         # outbox worker (Stage 12)
@@ -232,8 +314,9 @@ takeplace/
 │  └─ tests/             # unit + integration/
 ├─ frontend/
 │  ├─ src/
-│  │  ├─ api/            # typed client + generated/schema.ts
-│  │  ├─ pages/          # status / not-found
+│  │  ├─ api/            # typed client, admin API + hooks, generated/schema.ts
+│  │  ├─ components/     # RequireAdmin (route guard)
+│  │  ├─ pages/          # status / admin login / admin dashboard / not-found
 │  │  └─ ...
 │  ├─ openapi/           # openapi.json (экспорт из backend)
 │  └─ scripts/           # generate-api.mjs
@@ -253,5 +336,7 @@ takeplace/
 | `/health/ready` | Приложение видит БД (`SELECT 1`); 503 если нет (Docker readiness) |
 | `/health/ops`   | Operational health для мониторинга; всегда 200, может быть `degraded` |
 
-`/health/ops` намеренно не используется как liveness-probe, чтобы проблема с
-внешним сервисом (например, VK) не вызывала restart loop.
+`/health/ops` считается `degraded`, если БД недоступна или rolling timezone
+capability check нашёл UTC-offset переход у активного заведения (§47). Он
+намеренно не используется как liveness-probe, чтобы проблема с внешним сервисом
+(например, VK) не вызывала restart loop.

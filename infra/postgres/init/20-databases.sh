@@ -31,6 +31,7 @@ EOSQL
 
 # Mirror the schema privileges that 10-roles.sh applies to the main database.
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$TEST_DB" \
+  -v test_db="$TEST_DB" \
   -v migrator_user="$TAKEPLACE_DB_MIGRATOR_USER" \
   -v app_user="$TAKEPLACE_DB_APP_USER" \
   <<-'EOSQL'
