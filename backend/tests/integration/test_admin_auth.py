@@ -18,96 +18,39 @@ Coverage maps to the Stage 2 acceptance criterion and PROJECT-SPEC §7, §39, §
 
 from __future__ import annotations
 
-import os
 import re
-import subprocess
-import sys
-import uuid
 from collections.abc import AsyncIterator, Iterator
-from pathlib import Path
 
 import pytest
 from app.main import create_app
 from app.security.cookies import DEV_SESSION_COOKIE_NAME, SESSION_COOKIE_NAME
 from app.security.tokens import hash_session_token
-from app.settings import Settings, get_settings
+from app.settings import get_settings
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+# The shared helpers live in ``support`` so Stage 3 tests reuse the exact same
+# CLI/API bootstrap instead of re-deriving it.
+from tests.integration.support import (
+    APP_URL,
+    LOGOUT_ALL_URL,
+    LOGOUT_URL,
+    ME_URL,
+    NEW_PASSWORD,
+    ORIGIN,
+    PASSWORD,
+    SETTINGS_URL,
+    create_venue,
+    make_settings,
+    run_cli,
+)
+from tests.integration.support import cookie_header as _cookie_header
+from tests.integration.support import login as _login
+from tests.integration.support import unique as _unique
+
 pytestmark = pytest.mark.integration
-
-BACKEND_ROOT = Path(__file__).resolve().parents[2]
-APP_URL = os.environ.get("TAKEPLACE_TEST_DATABASE_URL")
-ORIGIN = "http://localhost:5173"
-PASSWORD = "initial-password-0123456789"
-NEW_PASSWORD = "rotated-password-0123456789"
-
-ADMIN = "/api/admin/v1"
-LOGIN_URL = f"{ADMIN}/auth/login"
-LOGOUT_URL = f"{ADMIN}/auth/logout"
-LOGOUT_ALL_URL = f"{ADMIN}/auth/logout-all"
-ME_URL = f"{ADMIN}/me"
-SETTINGS_URL = f"{ADMIN}/settings"
-
-
-def _unique(prefix: str) -> str:
-    return f"{prefix}-{uuid.uuid4().hex[:10]}"
-
-
-def _cli_env() -> dict[str, str]:
-    return {
-        **os.environ,
-        "TAKEPLACE_DATABASE_URL": APP_URL or "",
-        "TAKEPLACE_CORS_ORIGINS": ORIGIN,
-        "TAKEPLACE_ABUSE_HMAC_KEY": "test-abuse-key-0123456789",
-        "TAKEPLACE_IDEMPOTENCY_HMAC_KEY": "test-idempotency-key-0123456789",
-    }
-
-
-def run_cli(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        [sys.executable, "-m", "app.cli", *args],
-        cwd=BACKEND_ROOT,
-        env=_cli_env(),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-
-def create_venue(
-    slug: str,
-    login: str,
-    *,
-    password: str | None = PASSWORD,
-    timezone: str = "Europe/Moscow",
-) -> subprocess.CompletedProcess[str]:
-    args = [
-        "create-venue",
-        "--slug",
-        slug,
-        "--name",
-        f"Venue {slug}",
-        "--timezone",
-        timezone,
-        "--login",
-        login,
-    ]
-    if password is not None:
-        args += ["--password", password]
-    return run_cli(*args)
-
-
-def _login(client: TestClient, login: str, password: str, *, origin: str = ORIGIN):
-    return client.post(
-        LOGIN_URL, json={"login": login, "password": password}, headers={"Origin": origin}
-    )
-
-
-def _cookie_header(token: str) -> dict[str, str]:
-    return {"Cookie": f"{SESSION_COOKIE_NAME}={token}"}
 
 
 @pytest.fixture(autouse=True)
@@ -120,16 +63,9 @@ def _require_test_db() -> None:
 def api_client() -> Iterator[TestClient]:
     if not APP_URL:
         pytest.skip("TAKEPLACE_TEST_DATABASE_URL is not set")
-    settings = Settings(
-        database_url=APP_URL,
-        cors_origins=ORIGIN,
-        idempotency_hmac_key="test-idempotency-key-0123456789",
-        abuse_hmac_key="test-abuse-key-0123456789",
-        vk_encryption_keys="1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-        # Exercise the production-hardened cookie (``__Host-`` + Secure) here;
-        # local HTTP dev relaxes it (see the dedicated regression test below).
-        session_cookie_secure=True,
-    )
+    # Production-hardened cookie (``__Host-`` + Secure); local HTTP dev relaxes
+    # it (see the dedicated regression test below).
+    settings = make_settings()
     app = create_app(settings)
     app.dependency_overrides[get_settings] = lambda: settings
     with TestClient(app) as client:
@@ -190,14 +126,7 @@ def test_dev_cookie_relaxation_drops_host_prefix_and_secure() -> None:
     """
     if not APP_URL:
         pytest.skip("TAKEPLACE_TEST_DATABASE_URL is not set")
-    settings = Settings(
-        database_url=APP_URL,
-        cors_origins=ORIGIN,
-        idempotency_hmac_key="test-idempotency-key-0123456789",
-        abuse_hmac_key="test-abuse-key-0123456789",
-        vk_encryption_keys="1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-        session_cookie_secure=False,
-    )
+    settings = make_settings(session_cookie_secure=False)
     app = create_app(settings)
     app.dependency_overrides[get_settings] = lambda: settings
     slug, login = _unique("venue"), _unique("admin")
@@ -450,11 +379,7 @@ def test_cli_generates_and_prints_password_once() -> None:
     password = match.group(1)
     assert password != PASSWORD
 
-    settings = Settings(
-        database_url=APP_URL,
-        cors_origins=ORIGIN,
-        abuse_hmac_key="test-abuse-key-0123456789",
-    )
+    settings = make_settings()
     app = create_app(settings)
     app.dependency_overrides[get_settings] = lambda: settings
     with TestClient(app) as client:
@@ -501,12 +426,7 @@ def test_health_ops_flags_timezone_capability_transition() -> None:
 
     asyncio.run(_insert_dst_venue())
 
-    settings = Settings(
-        database_url=APP_URL,
-        cors_origins=ORIGIN,
-        abuse_hmac_key="test-abuse-key-0123456789",
-        idempotency_hmac_key="test-idempotency-key-0123456789",
-    )
+    settings = make_settings()
     app = create_app(settings)
     app.dependency_overrides[get_settings] = lambda: settings
     with TestClient(app) as client:
