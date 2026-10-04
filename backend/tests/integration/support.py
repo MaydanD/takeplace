@@ -40,6 +40,7 @@ SCHEDULE_EXCEPTIONS_URL = f"{ADMIN}/schedule/exceptions"
 BUSINESS_DAY_URL = f"{ADMIN}/schedule/business-day"
 HALLS_URL = f"{ADMIN}/halls"
 TABLES_URL = f"{ADMIN}/tables"
+BOOKINGS_URL = f"{ADMIN}/bookings"
 
 TEST_HMAC_KEYS = {
     "idempotency_hmac_key": "test-idempotency-key-0123456789",
