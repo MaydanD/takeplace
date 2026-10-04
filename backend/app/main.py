@@ -125,6 +125,7 @@ def main() -> None:
         host=settings.api_host,
         port=settings.api_port,
         log_level=settings.log_level.lower(),
+        access_log=False,  # structured middleware omits PII-bearing query strings
         # Trust X-Forwarded-* only from the configured proxy addresses
         # (PROJECT-SPEC §39.5).
         proxy_headers=True,

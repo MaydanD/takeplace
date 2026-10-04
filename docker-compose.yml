@@ -82,6 +82,8 @@ services:
       - --port
       - "8000"
       - --reload
+      # The structured middleware logs paths only; raw access logs leak phone searches.
+      - --no-access-log
       # Trust X-Forwarded-* only from explicitly configured proxies (§39.5).
       - --proxy-headers
       - --forwarded-allow-ips

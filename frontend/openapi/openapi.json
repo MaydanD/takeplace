@@ -164,6 +164,7 @@
         "type": "object"
       },
       "BookingCreate": {
+        "additionalProperties": false,
         "description": "Admin manual create (§19). ``ONLINE`` is reserved for the public flow (§8).\n\nTimes are absolute ISO-8601 instants; the backend derives the business date\nand the shift snapshot from the canonical schedule resolver.",
         "properties": {
           "ends_at": {
@@ -200,6 +201,11 @@
               }
             ],
             "title": "Guest Phone Raw"
+          },
+          "open_immediately": {
+            "default": false,
+            "title": "Open Immediately",
+            "type": "boolean"
           },
           "party_size": {
             "maximum": 1000.0,
@@ -279,6 +285,71 @@
         "title": "BookingEventSummary",
         "type": "object"
       },
+      "BookingGuestEdit": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "guest_comment": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Guest Comment"
+          },
+          "guest_name": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Guest Name"
+          },
+          "guest_phone_raw": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Guest Phone Raw"
+          },
+          "party_size": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Party Size"
+          }
+        },
+        "required": [
+          "expected_version"
+        ],
+        "title": "BookingGuestEdit",
+        "type": "object"
+      },
       "BookingHistoryResponse": {
         "properties": {
           "events": {
@@ -330,6 +401,10 @@
             "title": "Business Date",
             "type": "string"
           },
+          "can_investigate_network": {
+            "title": "Can Investigate Network",
+            "type": "boolean"
+          },
           "canceled_at": {
             "anyOf": [
               {
@@ -342,6 +417,17 @@
             ],
             "title": "Canceled At"
           },
+          "cancellation_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancellation Note"
+          },
           "cancellation_reason": {
             "anyOf": [
               {
@@ -352,6 +438,18 @@
               }
             ],
             "title": "Cancellation Reason"
+          },
+          "closed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
           },
           "created_at": {
             "format": "date-time",
@@ -411,9 +509,28 @@
             "title": "Id",
             "type": "integer"
           },
+          "live_table_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Live Table Ids",
+            "type": "array"
+          },
           "number": {
             "title": "Number",
             "type": "integer"
+          },
+          "opened_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opened At"
           },
           "party_size": {
             "title": "Party Size",
@@ -461,6 +578,18 @@
           "version": {
             "title": "Version",
             "type": "integer"
+          },
+          "waiting_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waiting At"
           }
         },
         "required": [
@@ -480,6 +609,12 @@
           "starts_at",
           "ends_at",
           "table_ids",
+          "live_table_ids",
+          "opened_at",
+          "waiting_at",
+          "closed_at",
+          "cancellation_note",
+          "can_investigate_network",
           "version",
           "canceled_at",
           "cancellation_reason",
@@ -2328,6 +2463,67 @@
           },
           {
             "in": "query",
+            "name": "guest_phone_normalized",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 50,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Guest Phone Normalized"
+            }
+          },
+          {
+            "in": "query",
+            "name": "number",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "same_network_as",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Same Network As"
+            }
+          },
+          {
+            "in": "query",
+            "name": "unresolved",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Unresolved",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
             "name": "cursor",
             "required": false,
             "schema": {
@@ -2534,6 +2730,56 @@
           }
         },
         "summary": "Get Booking Detail",
+        "tags": [
+          "admin-bookings"
+        ]
+      },
+      "patch": {
+        "operationId": "patch_booking_api_admin_v1_bookings__booking_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "title": "Booking Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BookingGuestEdit"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Booking",
         "tags": [
           "admin-bookings"
         ]

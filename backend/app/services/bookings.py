@@ -30,12 +30,12 @@ from __future__ import annotations
 
 import json
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import date as date_type
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import false, select, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,6 +43,7 @@ from app.db.locks import acquire_schedule_lock_shared
 from app.db.models import (
     Booking,
     BookingEvent,
+    BookingLiveTable,
     Hall,
     Table,
     TableOccupancy,
@@ -60,8 +61,9 @@ from app.domain.booking import (
     normalize_phone,
     truncate_segment_at,
     validate_booking_interval,
+    walk_in_start,
 )
-from app.domain.schedule import current_business_date, shift_containing
+from app.domain.schedule import Shift, current_business_date, shift_containing
 from app.domain.timezone import load_timezone
 from app.security.tokens import hmac_sha256_hex
 from app.services.errors import (
@@ -74,9 +76,11 @@ from app.services.errors import (
     IdempotencyKeyReusedError,
     OnlineBookingDisabledError,
     ServiceUnavailableError,
+    TableLiveConflictError,
     TableNotBookableError,
     TableNotFoundError,
 )
+from app.services.live_availability import live_busy_intervals
 from app.services.schedule import load_schedule_table
 
 MAX_ATTEMPTS = 3  # 1 try + up to 2 retries (§32.5)
@@ -99,6 +103,7 @@ class AdminBookingInput:
     guest_name: str
     guest_phone_raw: str | None = None
     guest_comment: str | None = None
+    open_immediately: bool = False
 
 
 @dataclass(slots=True)
@@ -126,6 +131,8 @@ class BookingView:
 
     booking: Booking
     table_ids: list[int]
+    live_table_ids: list[int] = field(default_factory=list)
+    can_investigate_network: bool = False
 
 
 def _sqlstate(exc: DBAPIError) -> str | None:
@@ -157,6 +164,9 @@ def canonical_admin_payload(*, venue_id: int, data: AdminBookingInput) -> str:
         "guest_phone_raw": data.guest_phone_raw,
         "guest_comment": data.guest_comment,
     }
+    # Preserve the Stage 5 HMAC for ordinary creates/retries.
+    if data.open_immediately:
+        payload["open_immediately"] = True
     return json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
 
 
@@ -232,11 +242,58 @@ async def active_table_ids(session: AsyncSession, venue_id: int, booking_id: int
     return [int(table_id) for table_id in rows.scalars().all()]
 
 
+async def views_of(
+    session: AsyncSession, venue_id: int, bookings: list[Booking]
+) -> list[BookingView]:
+    """Batch resource reads for a bounded page; never N+1 queries over history."""
+    if not bookings:
+        return []
+    ids = [b.id for b in bookings]
+    plans: dict[int, set[int]] = {}
+    lives: dict[int, list[int]] = {}
+    for booking_id, table_id in (
+        await session.execute(
+            select(
+                TableOccupancy.booking_id,
+                TableOccupancy.table_id,
+            ).where(
+                TableOccupancy.venue_id == venue_id,
+                TableOccupancy.booking_id.in_(ids),
+                TableOccupancy.kind == "BOOKING",
+                TableOccupancy.is_active.is_(True),
+            )
+        )
+    ).all():
+        if booking_id is not None:
+            plans.setdefault(booking_id, set()).add(table_id)
+    for booking_id, table_id in (
+        await session.execute(
+            select(
+                BookingLiveTable.booking_id,
+                BookingLiveTable.table_id,
+            ).where(BookingLiveTable.venue_id == venue_id, BookingLiveTable.booking_id.in_(ids))
+        )
+    ).all():
+        lives.setdefault(booking_id, []).append(table_id)
+    now = await operation_now(session)
+    return [
+        BookingView(
+            booking=b,
+            table_ids=sorted(plans.get(b.id, set())),
+            live_table_ids=sorted(lives.get(b.id, [])),
+            can_investigate_network=bool(
+                b.source == "ONLINE"
+                and b.request_ip_hmac
+                and b.request_ip_hmac_expires_at
+                and b.request_ip_hmac_expires_at > now
+            ),
+        )
+        for b in bookings
+    ]
+
+
 async def view_of(session: AsyncSession, booking: Booking) -> BookingView:
-    """Wrap a booking with its active table ids."""
-    return BookingView(
-        booking=booking, table_ids=await active_table_ids(session, booking.venue_id, booking.id)
-    )
+    return (await views_of(session, booking.venue_id, [booking]))[0]
 
 
 async def list_events(session: AsyncSession, venue_id: int, booking_id: int) -> list[BookingEvent]:
@@ -291,13 +348,15 @@ async def _lock_halls(session: AsyncSession, venue_id: int, hall_ids: list[int])
     return list(rows.scalars().all())
 
 
-async def _lock_tables(session: AsyncSession, venue_id: int, table_ids: list[int]) -> list[Table]:
+async def _lock_tables(
+    session: AsyncSession, venue_id: int, table_ids: list[int], *, live: bool = False
+) -> list[Table]:
     rows = await session.execute(
         select(Table)
         .where(Table.venue_id == venue_id, Table.id.in_(table_ids))
         .order_by(Table.id)
         .execution_options(populate_existing=True)
-        .with_for_update(read=True)
+        .with_for_update(read=not live)
     )
     return list(rows.scalars().all())
 
@@ -340,7 +399,7 @@ async def _conflicting_booking_ids(
             | (TableOccupancy.booking_id != exclude_booking_id)
         )
     rows = await session.execute(query)
-    ids = {int(value) for value in rows.scalars().all() if value is not None}
+    ids = {int(value) if value is not None else 0 for value in rows.scalars().all()}
     return sorted(ids)
 
 
@@ -410,7 +469,7 @@ def _assert_replay(booking: Booking, request_hmac: str) -> None:
 
 
 async def _lock_halls_tables(
-    session: AsyncSession, venue_id: int, table_ids: list[int]
+    session: AsyncSession, venue_id: int, table_ids: list[int], *, live: bool = False
 ) -> tuple[list[Hall], list[Table]]:
     """Lock the involved halls then tables, both ascending by id (§32.1).
 
@@ -446,7 +505,7 @@ async def _lock_halls_tables(
         }
     )
     halls = await _lock_halls(session, venue_id, hall_ids)
-    tables = await _lock_tables(session, venue_id, table_ids)
+    tables = await _lock_tables(session, venue_id, table_ids, live=live)
     return halls, tables
 
 
@@ -484,6 +543,34 @@ async def _lock_active_occupancies(
 # --- create -----------------------------------------------------------------
 
 
+async def _check_live_conflicts(
+    session: AsyncSession,
+    venue_id: int,
+    table_ids: list[int],
+    starts_at: datetime,
+    ends_at: datetime,
+    now: datetime,
+    *,
+    business_date: date_type | None = None,
+) -> None:
+    if business_date is not None:
+        existing = await session.scalar(
+            select(BookingLiveTable.id)
+            .where(
+                BookingLiveTable.venue_id == venue_id,
+                BookingLiveTable.table_id.in_(table_ids),
+                BookingLiveTable.business_date == business_date,
+            )
+            .limit(1)
+        )
+        if existing is not None:
+            raise TableLiveConflictError()
+    for table_id in table_ids:
+        for start, end in await live_busy_intervals(session, venue_id, table_id, now):
+            if start < ends_at and starts_at < end:
+                raise BookingConflictError([])
+
+
 async def _create_once(
     session: AsyncSession,
     *,
@@ -499,6 +586,8 @@ async def _create_once(
         raise BookingNotFoundError(venue_id)
     if data.source not in ADMIN_BOOKING_SOURCES:
         raise BookingRuleViolationError(f"source must be one of {ADMIN_BOOKING_SOURCES}")
+    if data.open_immediately and data.source != "WALK_IN":
+        raise BookingRuleViolationError("open_immediately requires source WALK_IN")
     if data.guest_name is None or not data.guest_name.strip():
         raise BookingRuleViolationError("guest_name is required")
     if not data.table_ids:
@@ -514,22 +603,30 @@ async def _create_once(
     # 2. resolve the shift/snapshot using the canonical Stage 3 resolver.
     venue_tz = load_timezone(venue.timezone)
     schedule = await load_schedule_table(session, venue_id)
-    containing = shift_containing(schedule, data.starts_at, venue_tz)
+    # 3. halls ASC FOR SHARE, then tables ASC FOR SHARE (§32.1).
+    halls, tables = await _lock_halls_tables(
+        session, venue_id, data.table_ids, live=data.open_immediately
+    )
+
+    # 4. operation_now, after every business lock.
+    now = await operation_now(session)
+    containing = shift_containing(
+        schedule, now if data.open_immediately else data.starts_at, venue_tz
+    )
     if containing is None:
         raise BookingRuleViolationError("no shift contains the requested start time")
     business_date, shift = containing
 
-    # 3. halls ASC FOR SHARE, then tables ASC FOR SHARE (§32.1).
-    halls, tables = await _lock_halls_tables(session, venue_id, data.table_ids)
-
-    # 4. operation_now, after every business lock.
-    now = await operation_now(session)
-
     # 5. re-validate time/shift/bookability/capacity/conflicts on locked state.
     try:
-        validate_booking_interval(
-            starts_at=data.starts_at, ends_at=data.ends_at, shift=shift, now=now
-        )
+        if data.open_immediately:
+            data = replace(
+                data, starts_at=walk_in_start(now=now, ends_at=data.ends_at, shift=shift)
+            )
+        else:
+            validate_booking_interval(
+                starts_at=data.starts_at, ends_at=data.ends_at, shift=shift, now=now
+            )
     except BookingRuleError as exc:
         raise BookingRuleViolationError(exc.reason) from exc
     if business_date > booking_horizon_end(current_business_date(now, schedule, venue_tz)):
@@ -537,10 +634,23 @@ async def _create_once(
     _check_bookable(tables, halls)
     _assert_capacity(tables, data.party_size, data.starts_at, data.ends_at)
     conflicts = await _conflicting_booking_ids(
-        session, venue_id, data.table_ids, data.starts_at, data.ends_at
+        session,
+        venue_id,
+        data.table_ids,
+        now if data.open_immediately else data.starts_at,
+        data.ends_at,
     )
     if conflicts:
         raise BookingConflictError(conflicts)
+    await _check_live_conflicts(
+        session,
+        venue_id,
+        data.table_ids,
+        data.starts_at,
+        data.ends_at,
+        now,
+        business_date=business_date if data.open_immediately else None,
+    )
 
     # 6. booking counter, booking, occupancies, event.
     number = await _next_booking_number(session, venue_id)
@@ -566,9 +676,9 @@ async def _create_once(
         request_ip_hmac=None,
         request_ip_hmac_expires_at=None,
         source=data.source,
-        status="NEW",
+        status="OPEN" if data.open_immediately else "NEW",
         waiting_at=None,
-        opened_at=None,
+        opened_at=now if data.open_immediately else None,
         closed_at=None,
         canceled_at=None,
         cancellation_reason=None,
@@ -615,6 +725,29 @@ async def _create_once(
         )
     )
     await session.flush()
+    if data.open_immediately:
+        for table in tables:
+            session.add(
+                BookingLiveTable(
+                    venue_id=venue_id,
+                    booking_id=booking.id,
+                    business_date=business_date,
+                    table_id=table.id,
+                    live_since=now,
+                )
+            )
+        session.add(
+            _event(
+                venue_id=venue_id,
+                booking_id=booking.id,
+                event_type="BOOKING_OPENED",
+                actor_type="ADMIN",
+                admin_session_id=admin_session_id,
+                created_at=now,
+                payload={"table_ids": sorted(data.table_ids)},
+            )
+        )
+        await session.flush()
     return booking
 
 
@@ -661,6 +794,13 @@ async def create_admin_booking(
                     admin_session_id=admin_session_id,
                 )
             return await view_of(session, booking), True
+        except (BookingConflictError, TableLiveConflictError):
+            # A serialized WALK_IN retry sees the winner before INSERT (§19).
+            async with session.begin():
+                existing = await find_by_admin_key(session, venue_id, key)
+            if existing is not None:
+                return await _replay(session, venue_id, existing, request_hmac), False
+            raise
         except IntegrityError as exc:
             state = _sqlstate(exc)
             if state == "23505":  # idempotency-key unique race -> replay lookup
@@ -770,6 +910,10 @@ async def _create_public_once(
     )
     if conflicts:
         raise BookingConflictError(conflicts)
+
+    await _check_live_conflicts(
+        session, venue_id, [data.table_id], data.starts_at, data.ends_at, now
+    )
 
     # 7. booking counter, booking, occupancies, event.
     number = await _next_booking_number(session, venue_id)
@@ -1031,7 +1175,15 @@ async def _change_time_once(
         )
     venue_tz = load_timezone(venue.timezone)
     schedule = await load_schedule_table(session, venue_id)
-    containing = shift_containing(schedule, starts_at, venue_tz)
+    end_only = starts_at == booking.starts_at
+    containing = (
+        (
+            booking.business_date,
+            Shift(booking.business_date, booking.shift_starts_at, booking.shift_ends_at),
+        )
+        if end_only
+        else shift_containing(schedule, starts_at, venue_tz)
+    )
     if containing is None:
         raise BookingRuleViolationError("no shift contains the new start time")
     business_date, shift = containing
@@ -1041,13 +1193,18 @@ async def _change_time_once(
     halls, tables = await _lock_halls_tables(session, venue_id, table_ids)
     now = await operation_now(session)
     try:
-        validate_booking_interval(starts_at=starts_at, ends_at=ends_at, shift=shift, now=now)
+        if end_only and (now >= booking.ends_at or ends_at <= now):
+            raise BookingRuleError("an expired interval requires a full reschedule")
+        validate_booking_interval(
+            starts_at=starts_at, ends_at=ends_at, shift=shift, now=None if end_only else now
+        )
     except BookingRuleError as exc:
         raise BookingRuleViolationError(exc.reason) from exc
     if business_date > booking_horizon_end(current_business_date(now, schedule, venue_tz)):
         raise BookingRuleViolationError("business date is beyond the booking horizon")
     _check_bookable(tables, halls)
     _assert_capacity(tables, booking.party_size, starts_at, ends_at)
+    await _check_live_conflicts(session, venue_id, table_ids, starts_at, ends_at, now)
     conflicts = await _conflicting_booking_ids(
         session, venue_id, table_ids, starts_at, ends_at, exclude_booking_id=booking_id
     )
@@ -1139,6 +1296,109 @@ async def change_booking_time(
 # --- list / history ---------------------------------------------------------
 
 
+async def edit_booking_guest(
+    session: AsyncSession,
+    *,
+    venue_id: int,
+    booking_id: int,
+    expected_version: int,
+    changes: dict[str, Any],
+    admin_session_id: int | None,
+) -> BookingView:
+    """Whitelist-only edit, serialized by booking and capacity resource locks (§27/33)."""
+    allowed = {"guest_name", "guest_phone_raw", "guest_comment", "party_size"}
+    if not changes or changes.keys() - allowed:
+        raise BookingRuleViolationError("only guest fields may be edited")
+    for attempt in range(MAX_ATTEMPTS):
+        try:
+            async with session.begin():
+                await session.get(Venue, venue_id)
+                booking = await _lock_booking(session, venue_id, booking_id)
+                if booking.version != expected_version:
+                    raise BookingStaleError(booking_id)
+                if booking.status not in ("NEW", "WAITING", "OPEN"):
+                    raise BookingInvalidStateError("terminal bookings cannot be edited")
+                name = changes.get("guest_name", booking.guest_name)
+                phone = changes.get("guest_phone_raw", booking.guest_phone_raw)
+                party = changes.get("party_size", booking.party_size)
+                if not name or not name.strip() or party is None or party < 1:
+                    raise BookingRuleViolationError("name and positive party_size are required")
+                if booking.source in SOURCES_REQUIRING_PHONE and (not phone or not phone.strip()):
+                    raise BookingRuleViolationError("phone is required for this source")
+                if "party_size" in changes:
+                    occupancies = list(
+                        (
+                            await session.scalars(
+                                select(TableOccupancy).where(
+                                    TableOccupancy.venue_id == venue_id,
+                                    TableOccupancy.booking_id == booking_id,
+                                    TableOccupancy.is_active.is_(True),
+                                )
+                            )
+                        ).all()
+                    )
+                    live_ids = list(
+                        (
+                            await session.scalars(
+                                select(BookingLiveTable.table_id).where(
+                                    BookingLiveTable.venue_id == venue_id,
+                                    BookingLiveTable.booking_id == booking_id,
+                                )
+                            )
+                        ).all()
+                    )
+                    ids = sorted({o.table_id for o in occupancies} | set(live_ids))
+                    _, tables = await _lock_halls_tables(session, venue_id, ids)
+                now = await operation_now(session)
+                if "party_size" in changes:
+                    capacities = {t.id: t.capacity for t in tables}
+                    if (
+                        now < booking.ends_at
+                        and not capacity_sufficient(
+                            party_size=party,
+                            assigned=[
+                                (capacities[o.table_id], o.starts_at, o.ends_at)
+                                for o in occupancies
+                            ],
+                            interval_start=max(now, booking.starts_at),
+                            interval_end=booking.ends_at,
+                        )
+                    ) or (
+                        booking.status == "OPEN" and sum(capacities[i] for i in live_ids) < party
+                    ):
+                        raise BookingRuleViolationError("insufficient capacity for party_size")
+                changes = {**changes}
+                if "guest_name" in changes:
+                    changes["guest_name"] = name.strip()
+                for key, value in changes.items():
+                    setattr(booking, key, value)
+                if "guest_phone_raw" in changes:
+                    booking.guest_phone_normalized = normalize_phone(phone) if phone else None
+                booking.version += 1
+                booking.updated_at = now
+                session.add(
+                    _event(
+                        venue_id=venue_id,
+                        booking_id=booking_id,
+                        event_type="BOOKING_EDITED",
+                        actor_type="ADMIN",
+                        admin_session_id=admin_session_id,
+                        created_at=now,
+                        payload={"changed_fields": sorted(changes)},
+                    )
+                )
+                await session.flush()
+            return await view_of(session, booking)
+        except DBAPIError as exc:
+            state = _sqlstate(exc)
+            if state in _RETRYABLE_SQLSTATES and attempt + 1 < MAX_ATTEMPTS:
+                continue
+            if state == _LOCK_TIMEOUT_SQLSTATE:
+                raise ServiceUnavailableError() from exc
+            raise
+    raise ServiceUnavailableError()
+
+
 async def list_bookings(
     session: AsyncSession,
     venue_id: int,
@@ -1148,6 +1408,8 @@ async def list_bookings(
     source: str | None = None,
     table_id: int | None = None,
     phone: str | None = None,
+    number: int | None = None,
+    same_network_as: int | None = None,
     unresolved: bool = False,
     cursor: int | None = None,
     limit: int = 50,
@@ -1161,7 +1423,25 @@ async def list_bookings(
     if source is not None:
         query = query.where(Booking.source == source)
     if phone is not None:
-        query = query.where(Booking.guest_phone_normalized == normalize_phone(phone))
+        normalized = normalize_phone(phone)
+        query = query.where(Booking.guest_phone_normalized == normalized if normalized else false())
+    if number is not None:
+        query = query.where(Booking.number == number)
+    if same_network_as is not None:
+        reference = await get_booking(session, venue_id, same_network_as)
+        now = await operation_now(session)
+        if (
+            reference.source != "ONLINE"
+            or not reference.request_ip_hmac
+            or reference.request_ip_hmac_expires_at is None
+            or reference.request_ip_hmac_expires_at <= now
+        ):
+            return [], None
+        query = query.where(
+            Booking.source == "ONLINE",
+            Booking.request_ip_hmac == reference.request_ip_hmac,
+            Booking.request_ip_hmac_expires_at > now,
+        )
     if table_id is not None:
         query = query.where(
             Booking.id.in_(
@@ -1175,7 +1455,7 @@ async def list_bookings(
         )
     if unresolved:
         now = await operation_now(session)
-        query = query.where(Booking.status.in_(("NEW", "WAITING")), Booking.ends_at < now)
+        query = query.where(Booking.status.in_(("NEW", "WAITING", "OPEN")), Booking.ends_at < now)
     if cursor is not None:
         query = query.where(Booking.id < cursor)
     query = query.order_by(Booking.id.desc()).limit(limit + 1)
@@ -1184,4 +1464,4 @@ async def list_bookings(
     if len(rows) > limit:
         rows = rows[:limit]
         next_cursor = rows[-1].id
-    return [await view_of(session, booking) for booking in rows], next_cursor
+    return await views_of(session, venue_id, rows), next_cursor

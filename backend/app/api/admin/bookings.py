@@ -30,11 +30,13 @@ from app.api.admin.schemas import (
     BookingChangeTime,
     BookingCreate,
     BookingEventSummary,
+    BookingGuestEdit,
     BookingHistoryResponse,
     BookingListResponse,
     BookingSummary,
 )
 from app.api.errors import (
+    ApiError,
     booking_conflict,
     booking_invalid_state,
     booking_rule_violation,
@@ -51,6 +53,7 @@ from app.services.bookings import (
     cancel_booking,
     change_booking_time,
     create_admin_booking,
+    edit_booking_guest,
     get_booking,
     list_bookings,
     list_events,
@@ -65,6 +68,7 @@ from app.services.errors import (
     HallNotBookableError,
     IdempotencyKeyReusedError,
     ServiceUnavailableError,
+    TableLiveConflictError,
     TableNotBookableError,
     TableNotFoundError,
 )
@@ -85,6 +89,8 @@ def _translating_errors() -> Iterator[None]:
         raise booking_rule_violation(str(exc)) from exc
     except BookingConflictError as exc:
         raise booking_conflict(str(exc), exc.conflicting_booking_ids) from exc
+    except TableLiveConflictError as exc:
+        raise ApiError(409, "TABLE_LIVE_CONFLICT", str(exc)) from exc
     except BookingStaleError as exc:
         raise booking_stale(str(exc)) from exc
     except BookingInvalidStateError as exc:
@@ -109,6 +115,7 @@ def _input(payload: BookingCreate) -> AdminBookingInput:
         guest_name=payload.guest_name,
         guest_phone_raw=payload.guest_phone_raw,
         guest_comment=payload.guest_comment,
+        open_immediately=payload.open_immediately,
     )
 
 
@@ -152,21 +159,29 @@ async def get_bookings(
     source: Annotated[str | None, Query()] = None,
     table_id: Annotated[int | None, Query()] = None,
     phone: Annotated[str | None, Query()] = None,
+    guest_phone_normalized: Annotated[str | None, Query(max_length=50)] = None,
+    number: Annotated[int | None, Query(ge=1)] = None,
+    same_network_as: Annotated[int | None, Query(ge=1)] = None,
+    unresolved: bool = False,
     cursor: Annotated[int | None, Query()] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> BookingListResponse:
     """Cursor/limit list with the §35 filters (newest first)."""
-    views, next_cursor = await list_bookings(
-        session,
-        context.venue_id,
-        business_date=business_date,
-        status=status_filter,
-        source=source,
-        table_id=table_id,
-        phone=phone,
-        cursor=cursor,
-        limit=limit,
-    )
+    with _translating_errors():
+        views, next_cursor = await list_bookings(
+            session,
+            context.venue_id,
+            business_date=business_date,
+            status=status_filter,
+            source=source,
+            table_id=table_id,
+            phone=guest_phone_normalized if guest_phone_normalized is not None else phone,
+            number=number,
+            same_network_as=same_network_as,
+            unresolved=unresolved,
+            cursor=cursor,
+            limit=limit,
+        )
     return BookingListResponse(
         items=[BookingSummary.from_view(view) for view in views], next_cursor=next_cursor
     )
@@ -190,6 +205,24 @@ async def get_unresolved(
 
 async def _view(session: AsyncSession, venue_id: int, booking_id: int) -> BookingView:
     return await view_of(session, await get_booking(session, venue_id, booking_id))
+
+
+@router.patch(
+    "/{booking_id}", response_model=BookingSummary, dependencies=[Depends(require_trusted_origin)]
+)
+async def patch_booking(
+    booking_id: int, payload: BookingGuestEdit, context: AuthContextDep, session: SessionDep
+) -> BookingSummary:
+    with _translating_errors():
+        view = await edit_booking_guest(
+            session,
+            venue_id=context.venue_id,
+            booking_id=booking_id,
+            expected_version=payload.expected_version,
+            changes=payload.model_dump(exclude_unset=True, exclude={"expected_version"}),
+            admin_session_id=context.session.id,
+        )
+    return BookingSummary.from_view(view)
 
 
 @router.get("/{booking_id}", response_model=BookingSummary)

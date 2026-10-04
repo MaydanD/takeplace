@@ -10,7 +10,13 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.db.models.admin import AdminAccount, AdminSession
-from app.db.models.booking import Booking, BookingEvent, TableOccupancy, VenueBookingCounter
+from app.db.models.booking import (
+    Booking,
+    BookingEvent,
+    BookingLiveTable,
+    TableOccupancy,
+    VenueBookingCounter,
+)
 from app.db.models.hall import Hall, Table
 from app.db.models.schedule import ScheduleException, WeeklySchedule
 from app.db.models.venue import Venue
@@ -20,6 +26,7 @@ __all__ = [
     "AdminSession",
     "Booking",
     "BookingEvent",
+    "BookingLiveTable",
     "Hall",
     "ScheduleException",
     "Table",

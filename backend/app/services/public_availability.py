@@ -23,6 +23,7 @@ from app.db.time import floor_to_5_minutes as _floor_to_5_minutes
 from app.domain.booking import MIN_BOOKING_MINUTES, booking_horizon_end
 from app.domain.schedule import Shift, current_business_date
 from app.domain.timezone import load_timezone
+from app.services.live_availability import live_busy_intervals
 from app.services.schedule import load_schedule_table
 
 _SLOT_SECONDS = 5 * 60
@@ -226,8 +227,11 @@ async def _online_busy_intervals(
     the dynamic overlay is empty. The function exists as the seam for §17
     without duplicating domain logic.
     """
-    _ = (session, venue_id, table_id, now, shift)
-    return []
+    return [
+        (max(start, shift.start), min(end, shift.end))
+        for start, end in await live_busy_intervals(session, venue_id, table_id, now)
+        if start < shift.end and end > shift.start
+    ]
 
 
 # ---------------------------------------------------------------------------

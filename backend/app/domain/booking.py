@@ -185,6 +185,19 @@ def grid_shift_end(shift: Shift) -> datetime:
     return value
 
 
+def walk_in_start(*, now: datetime, ends_at: datetime, shift: Shift) -> datetime:
+    """Derive the plan from locked server time, including the near-close exception."""
+    if not shift.start <= now < shift.end:
+        raise BookingRuleError("WALK_IN requires a current open shift")
+    start = ceil_to_5_minutes(now)
+    end = grid_shift_end(shift)
+    required = min(timedelta(minutes=MIN_BOOKING_MINUTES), end - start)
+    validate_booking_interval(starts_at=start, ends_at=ends_at, shift=shift, min_minutes=0)
+    if ends_at - start < required:
+        raise BookingRuleError("WALK_IN must cover 45 minutes or the remaining shift")
+    return start
+
+
 def capacity_sufficient(
     *,
     party_size: int,

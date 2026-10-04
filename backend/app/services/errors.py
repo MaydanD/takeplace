@@ -158,6 +158,11 @@ class BookingStaleError(ServiceError):
         self.booking_id = booking_id
 
 
+class TableLiveConflictError(ServiceError):
+    def __init__(self) -> None:
+        super().__init__("a selected table already has guests in this business day")
+
+
 class BookingInvalidStateError(ServiceError):
     """The requested transition is not allowed from the booking's status (§9)."""
 

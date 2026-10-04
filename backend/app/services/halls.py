@@ -17,8 +17,9 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.locks import acquire_layout_lock
-from app.db.models import Booking, Hall, Table, TableOccupancy
+from app.db.models import Booking, BookingLiveTable, Hall, Table, TableOccupancy, Venue
 from app.db.time import operation_now
+from app.domain.booking import capacity_sufficient
 from app.domain.layout import (
     DEFAULT_CANVAS_HEIGHT,
     DEFAULT_CANVAS_WIDTH,
@@ -27,6 +28,8 @@ from app.domain.layout import (
     LayoutImport,
     TableSpec,
 )
+from app.domain.schedule import current_business_date
+from app.domain.timezone import load_timezone
 from app.services.errors import (
     CapacityChangeBlockedError,
     HallArchiveBlockedError,
@@ -34,6 +37,7 @@ from app.services.errors import (
     TableArchiveBlockedError,
     TableNotFoundError,
 )
+from app.services.schedule import load_schedule_table
 
 
 def _dec(value: float | int) -> Decimal:
@@ -227,6 +231,23 @@ async def archive_table(session: AsyncSession, venue_id: int, table_id: int) -> 
         raise TableArchiveBlockedError(
             f"it still has {int(future_bookings)} future active booking occupancy(ies)"
         )
+    venue = await session.get(Venue, venue_id)
+    if venue is not None:
+        schedule = await load_schedule_table(session, venue_id)
+        day = current_business_date(now, schedule, load_timezone(venue.timezone))
+        if (
+            await session.scalar(
+                select(BookingLiveTable.id)
+                .where(
+                    BookingLiveTable.venue_id == venue_id,
+                    BookingLiveTable.table_id == table_id,
+                    BookingLiveTable.business_date == day,
+                )
+                .limit(1)
+            )
+            is not None
+        ):
+            raise TableArchiveBlockedError("it still has guests in the current business day")
     await session.execute(
         update(TableOccupancy)
         .where(
@@ -261,12 +282,23 @@ async def _capacity_breakers(
             TableOccupancy.kind == "BOOKING",
             TableOccupancy.is_active.is_(True),
             TableOccupancy.ends_at > now,
-            Booking.status.in_(("NEW", "WAITING")),
+            Booking.status.in_(("NEW", "WAITING", "OPEN")),
         )
     )
     by_booking: dict[int, set[int]] = {}
     for booking_id, table_id in rows.all():
         by_booking.setdefault(int(booking_id), set()).add(int(table_id))
+    live_by_booking: dict[int, set[int]] = {}
+    live_rows = (
+        await session.execute(
+            select(BookingLiveTable.booking_id, BookingLiveTable.table_id).where(
+                BookingLiveTable.venue_id == venue_id
+            )
+        )
+    ).all()
+    for booking_id, table_id in live_rows:
+        live_by_booking.setdefault(booking_id, set()).add(table_id)
+        by_booking.setdefault(booking_id, set())
     if not by_booking:
         return []
 
@@ -293,12 +325,31 @@ async def _capacity_breakers(
         .all()
     }
     affected: list[dict[str, object]] = []
-    for booking_id, table_ids in sorted(by_booking.items()):
+    for booking_id, _table_ids in sorted(by_booking.items()):
         booking = bookings.get(booking_id)
         if booking is None:
             continue
-        total = sum(capacities.get(table_id, 0) for table_id in table_ids)
-        if booking.party_size > total:
+        segments = (
+            await session.scalars(
+                select(TableOccupancy).where(
+                    TableOccupancy.venue_id == venue_id,
+                    TableOccupancy.booking_id == booking_id,
+                    TableOccupancy.is_active.is_(True),
+                )
+            )
+        ).all()
+        plan_ok = now >= booking.ends_at or capacity_sufficient(
+            party_size=booking.party_size,
+            assigned=[(capacities.get(o.table_id, 0), o.starts_at, o.ends_at) for o in segments],
+            interval_start=max(now, booking.starts_at),
+            interval_end=booking.ends_at,
+        )
+        live_ok = (
+            booking.status != "OPEN"
+            or sum(capacities.get(i, 0) for i in live_by_booking.get(booking_id, set()))
+            >= booking.party_size
+        )
+        if not plan_ok or not live_ok:
             affected.append(
                 {
                     "id": booking.id,

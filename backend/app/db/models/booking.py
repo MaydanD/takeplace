@@ -274,6 +274,32 @@ class TableOccupancy(Base):
     )
 
 
+class BookingLiveTable(Base):
+    """Minimal factual placement for atomic WALK_IN (§6.9, §19.1)."""
+
+    __tablename__ = "booking_live_tables"
+    __table_args__ = (
+        UniqueConstraint("table_id", "business_date"),
+        ForeignKeyConstraint(
+            ["booking_id", "venue_id", "business_date"],
+            ["bookings.id", "bookings.venue_id", "bookings.business_date"],
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["table_id", "venue_id"], ["tables.id", "tables.venue_id"], ondelete="CASCADE"
+        ),
+        Index("ix_booking_live_tables_booking_id", "booking_id"),
+        Index("ix_booking_live_tables_venue_id_business_date", "venue_id", "business_date"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    venue_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    booking_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    table_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    live_since: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+
+
 class BookingEvent(Base):
     """Append-only booking history; ordered by ``id``, never by ``created_at`` (§6.10)."""
 

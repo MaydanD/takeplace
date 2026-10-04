@@ -133,7 +133,8 @@ export interface paths {
         delete?: never;
         options?: never;
         head?: never;
-        patch?: never;
+        /** Patch Booking */
+        patch: operations["patch_booking_api_admin_v1_bookings__booking_id__patch"];
         trace?: never;
     };
     "/api/admin/v1/bookings/{booking_id}/cancel": {
@@ -718,6 +719,11 @@ export interface components {
             guest_name: string;
             /** Guest Phone Raw */
             guest_phone_raw?: string | null;
+            /**
+             * Open Immediately
+             * @default false
+             */
+            open_immediately: boolean;
             /** Party Size */
             party_size: number;
             /**
@@ -754,6 +760,19 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** BookingGuestEdit */
+        BookingGuestEdit: {
+            /** Expected Version */
+            expected_version: number;
+            /** Guest Comment */
+            guest_comment?: string | null;
+            /** Guest Name */
+            guest_name?: string | null;
+            /** Guest Phone Raw */
+            guest_phone_raw?: string | null;
+            /** Party Size */
+            party_size?: number | null;
+        };
         /** BookingHistoryResponse */
         BookingHistoryResponse: {
             /** Events */
@@ -776,10 +795,16 @@ export interface components {
              * Format: date
              */
             business_date: string;
+            /** Can Investigate Network */
+            can_investigate_network: boolean;
             /** Canceled At */
             canceled_at: string | null;
+            /** Cancellation Note */
+            cancellation_note: string | null;
             /** Cancellation Reason */
             cancellation_reason: string | null;
+            /** Closed At */
+            closed_at: string | null;
             /**
              * Created At
              * Format: date-time
@@ -800,8 +825,12 @@ export interface components {
             guest_phone_raw: string | null;
             /** Id */
             id: number;
+            /** Live Table Ids */
+            live_table_ids: number[];
             /** Number */
             number: number;
+            /** Opened At */
+            opened_at: string | null;
             /** Party Size */
             party_size: number;
             /**
@@ -834,6 +863,8 @@ export interface components {
             venue_id: number;
             /** Version */
             version: number;
+            /** Waiting At */
+            waiting_at: string | null;
         };
         /**
          * BusinessDayResponse
@@ -1583,6 +1614,10 @@ export interface operations {
                 source?: string | null;
                 table_id?: number | null;
                 phone?: string | null;
+                guest_phone_normalized?: string | null;
+                number?: number | null;
+                same_network_as?: number | null;
+                unresolved?: boolean;
                 cursor?: number | null;
                 limit?: number;
             };
@@ -1689,6 +1724,41 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookingSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    patch_booking_api_admin_v1_bookings__booking_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booking_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BookingGuestEdit"];
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {

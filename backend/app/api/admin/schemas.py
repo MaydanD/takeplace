@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import AwareDatetime, BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from app.db.models import AdminAccount, BookingEvent, Hall, Table, Venue
 from app.domain.layout import StaticElement
@@ -273,6 +273,8 @@ class BookingCreate(BaseModel):
     and the shift snapshot from the canonical schedule resolver.
     """
 
+    model_config = ConfigDict(extra="forbid")
+    open_immediately: bool = False
     starts_at: AwareDatetime
     ends_at: AwareDatetime
     table_ids: list[int] = Field(min_length=1, max_length=50)
@@ -281,6 +283,15 @@ class BookingCreate(BaseModel):
     guest_name: str = Field(min_length=1, max_length=100)
     guest_phone_raw: str | None = Field(default=None, max_length=50)
     guest_comment: str | None = Field(default=None, max_length=1000)
+
+
+class BookingGuestEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_version: int = Field(ge=1)
+    guest_name: str | None = Field(default=None, min_length=1, max_length=100)
+    guest_phone_raw: str | None = Field(default=None, max_length=50)
+    guest_comment: str | None = Field(default=None, max_length=1000)
+    party_size: int | None = Field(default=None, ge=1, le=1000)
 
 
 class BookingCancel(BaseModel):
@@ -333,6 +344,12 @@ class BookingSummary(BaseModel):
     starts_at: datetime
     ends_at: datetime
     table_ids: list[int]
+    live_table_ids: list[int]
+    opened_at: datetime | None
+    waiting_at: datetime | None
+    closed_at: datetime | None
+    cancellation_note: str | None
+    can_investigate_network: bool
     version: int
     canceled_at: datetime | None
     cancellation_reason: str | None
@@ -359,6 +376,12 @@ class BookingSummary(BaseModel):
             starts_at=booking.starts_at,
             ends_at=booking.ends_at,
             table_ids=_tables_from_occupancies(view.table_ids),
+            live_table_ids=view.live_table_ids,
+            opened_at=booking.opened_at,
+            waiting_at=booking.waiting_at,
+            closed_at=booking.closed_at,
+            cancellation_note=booking.cancellation_note,
+            can_investigate_network=view.can_investigate_network,
             version=booking.version,
             canceled_at=booking.canceled_at,
             cancellation_reason=booking.cancellation_reason,
