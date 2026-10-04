@@ -291,3 +291,96 @@ button:disabled {
 .button--danger {
   color: #b42318;
 }
+
+.public-booking {
+  color-scheme: light;
+}
+.public-booking header {
+  margin-bottom: 2rem;
+}
+.booking-eyebrow {
+  color: #16794c;
+  font-weight: 650;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+}
+.booking-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.booking-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.public-booking input:not([type="checkbox"]),
+.public-booking select,
+.public-booking textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  font: inherit;
+  padding: 0.75rem;
+  border: 1px solid #9aa0a6;
+  border-radius: 0.5rem;
+  background: #fff;
+  color: #1c1e21;
+}
+.public-booking .field--checkbox {
+  align-items: flex-start;
+}
+.public-booking input[type="checkbox"] {
+  margin-top: 0.4rem;
+  flex-shrink: 0;
+}
+.booking-options {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.public-booking button[aria-pressed="true"] {
+  outline: 3px solid #16794c;
+  outline-offset: 2px;
+}
+.canvas-table[aria-disabled="false"] {
+  cursor: pointer;
+}
+.canvas-table--selected > g > rect,
+.canvas-table--selected > g > circle {
+  stroke: #174fb5;
+  stroke-width: 6px;
+}
+.canvas-table:focus-visible {
+  outline: 3px solid #174fb5;
+}
+.booking-submit {
+  margin-top: 1.25rem;
+  background: #16794c;
+  color: white;
+  width: 100%;
+  min-height: 3rem;
+  font-weight: 650;
+}
+.booking-feedback {
+  margin-top: 1.5rem;
+}
+.booking-honeypot {
+  display: none;
+}
+@media (max-width: 600px) {
+  .public-booking {
+    padding: 1.5rem 1rem;
+  }
+  .public-booking .card {
+    padding: 1rem;
+  }
+  .booking-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .public-booking .hall-canvas {
+    max-width: 100%;
+  }
+}

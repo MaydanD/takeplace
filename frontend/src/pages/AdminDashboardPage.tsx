@@ -1,3 +1,6 @@
+import { useQuery } from "@tanstack/react-query";
+import { apiRequest } from "@/api/client";
+import type { components } from "@/api/generated/schema";
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
@@ -11,6 +14,12 @@ import { useLogout, useLogoutAll, useMe, useSettings, useUpdateSettings } from "
  * arrive in later stages.
  */
 export function AdminDashboardPage() {
+  const system = useQuery({
+    queryKey: ["admin", "system", "status"],
+    queryFn: () =>
+      apiRequest<components["schemas"]["SystemStatusResponse"]>("/api/admin/v1/system/status"),
+    refetchInterval: 30000,
+  });
   const me = useMe();
   const settings = useSettings();
   const updateSettings = useUpdateSettings();
@@ -60,6 +69,12 @@ export function AdminDashboardPage() {
 
   return (
     <main className="page">
+      {system.data?.online_abuse_alert && (
+        <p role="alert" className="callout callout--error">
+          Необычно много онлайн-бронирований. Проверьте новые брони; при необходимости отключите
+          онлайн-бронирование в настройках ниже.
+        </p>
+      )}
       <header className="page-header">
         <h1>Админка</h1>
         <div className="page-header__actions">

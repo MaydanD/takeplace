@@ -21,12 +21,14 @@ const API_BASE_URL = import.meta.env.TAKEPLACE_API_BASE_URL ?? "";
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string | undefined;
+  readonly retryAfterSeconds: number | undefined;
 
-  constructor(status: number, message: string, code?: string) {
+  constructor(status: number, message: string, code?: string, retryAfterSeconds?: number) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 
@@ -36,6 +38,8 @@ export interface ApiRequestOptions {
   // `| undefined` keeps callers that pass an optional signal valid under
   // `exactOptionalPropertyTypes`.
   signal?: AbortSignal | undefined;
+  headers?: Record<string, string>;
+  credentials?: RequestCredentials;
 }
 
 /**
@@ -47,15 +51,18 @@ export interface ApiRequestOptions {
  * `code` that the UI branches on; the `detail` is only for display (§36).
  */
 export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
-  const { method = "GET", body, signal } = options;
+  const { method = "GET", body, signal, headers: extraHeaders } = options;
   const headers: Record<string, string> = { Accept: "application/json" };
+  if (extraHeaders) {
+    Object.assign(headers, extraHeaders);
+  }
   if (body !== undefined) {
     headers["Content-Type"] = "application/json";
   }
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method,
-    credentials: "include",
+    credentials: options.credentials ?? "include",
     headers,
     ...(signal ? { signal } : {}),
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
@@ -71,7 +78,13 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
     } catch {
       // Non-JSON error body; keep the status text.
     }
-    throw new ApiError(response.status, message, code);
+    const retryAfter = Number(response.headers.get("Retry-After"));
+    throw new ApiError(
+      response.status,
+      message,
+      code,
+      Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
+    );
   }
 
   if (response.status === 204) {

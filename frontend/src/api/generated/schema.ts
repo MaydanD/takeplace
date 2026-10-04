@@ -18,7 +18,7 @@ export interface paths {
          * Login
          * @description Authenticate and start a server-side session.
          *
-         *     Wrong login and wrong password return the same response (�39.5). Two cheap
+         *     Wrong login and wrong password return the same response (§39.5). Two cheap
          *     rate limits run before the CPU-bound Argon2id verify so the bounded pool
          *     cannot be saturated by garbage logins.
          */
@@ -78,16 +78,16 @@ export interface paths {
         };
         /**
          * Get Bookings
-         * @description Cursor/limit list with the �35 filters (newest first).
+         * @description Cursor/limit list with the §35 filters (newest first).
          */
         get: operations["get_bookings_api_admin_v1_bookings_get"];
         put?: never;
         /**
          * Post Booking
-         * @description Create a manual booking idempotently (�19, �32.2).
+         * @description Create a manual booking idempotently (§19, §32.2).
          *
          *     A fresh booking is ``201``; a replay of the same key+payload is ``200`` with
-         *     the same booking identity and no new side effects (�36).
+         *     the same booking identity and no new side effects (§36).
          */
         post: operations["post_booking_api_admin_v1_bookings_post"];
         delete?: never;
@@ -105,7 +105,7 @@ export interface paths {
         };
         /**
          * Get Unresolved
-         * @description NEW/WAITING bookings whose planned interval has already ended (�17.3).
+         * @description NEW/WAITING bookings whose planned interval has already ended (§17.3).
          */
         get: operations["get_unresolved_api_admin_v1_bookings_unresolved_get"];
         put?: never;
@@ -125,7 +125,7 @@ export interface paths {
         };
         /**
          * Get Booking Detail
-         * @description Return one booking of this venue, or 404 for any other tenant (�7.1).
+         * @description Return one booking of this venue, or 404 for any other tenant (§7.1).
          */
         get: operations["get_booking_detail_api_admin_v1_bookings__booking_id__get"];
         put?: never;
@@ -147,7 +147,7 @@ export interface paths {
         put?: never;
         /**
          * Post Cancel Booking
-         * @description Cancel an unopened booking; deactivates its occupancies (�9, �13).
+         * @description Cancel an unopened booking; deactivates its occupancies (§9, §13).
          */
         post: operations["post_cancel_booking_api_admin_v1_bookings__booking_id__cancel_post"];
         delete?: never;
@@ -167,7 +167,7 @@ export interface paths {
         put?: never;
         /**
          * Post Change Time
-         * @description Reschedule a NEW/WAITING booking and rewrite its shift snapshot (�5.5).
+         * @description Reschedule a NEW/WAITING booking and rewrite its shift snapshot (§5.5).
          */
         post: operations["post_change_time_api_admin_v1_bookings__booking_id__change_time_post"];
         delete?: never;
@@ -185,7 +185,7 @@ export interface paths {
         };
         /**
          * Get Booking History
-         * @description Return the append-only history ordered by ``booking_events.id`` (�6.10).
+         * @description Return the append-only history ordered by ``booking_events.id`` (§6.10).
          */
         get: operations["get_booking_history_api_admin_v1_bookings__booking_id__history_get"];
         put?: never;
@@ -242,7 +242,7 @@ export interface paths {
          * @description Update a hall's name, canvas size or operational bookability.
          *
          *     A canvas-size change is a layout-owned edit and bumps ``layout_revision``;
-         *     ``is_bookable`` never does (�31).
+         *     ``is_bookable`` never does (§31).
          */
         patch: operations["patch_hall_api_admin_v1_halls__hall_id__patch"];
         trace?: never;
@@ -258,7 +258,7 @@ export interface paths {
         put?: never;
         /**
          * Post Archive Hall
-         * @description Archive a hall; blocked while it still has non-archived tables (�29.5).
+         * @description Archive a hall; blocked while it still has non-archived tables (§29.5).
          */
         post: operations["post_archive_hall_api_admin_v1_halls__hall_id__archive_post"];
         delete?: never;
@@ -306,8 +306,8 @@ export interface paths {
          * @description Replace the weekly schedule, validating grid rules and adjacent overlaps.
          *
          *     The request must define every weekday; a shift that crosses midnight is
-         *     expressed as ``close_time < open_time`` (�5.2). A schedule whose adjacent
-         *     shifts would overlap is rejected with ``SCHEDULE_OVERLAP`` (�5.4).
+         *     expressed as ``close_time < open_time`` (§5.2). A schedule whose adjacent
+         *     shifts would overlap is rejected with ``SCHEDULE_OVERLAP`` (§5.4).
          */
         put: operations["put_weekly_schedule_api_admin_v1_schedule_put"];
         post?: never;
@@ -326,9 +326,9 @@ export interface paths {
         };
         /**
          * Get Business Day
-         * @description Return the computed state for a business date (�5.1, �5.6).
+         * @description Return the computed state for a business date (§5.1, §5.6).
          *
-         *     With no ``business_date`` the *current* business date is used � which may be
+         *     With no ``business_date`` the *current* business date is used — which may be
          *     yesterday's date while an overnight shift is still running.
          */
         get: operations["get_business_day_api_admin_v1_schedule_business_day_get"];
@@ -370,13 +370,13 @@ export interface paths {
         get?: never;
         /**
          * Put Exception
-         * @description Create or replace the exception for one business date (�5.3).
+         * @description Create or replace the exception for one business date (§5.3).
          */
         put: operations["put_exception_api_admin_v1_schedule_exceptions__business_date__put"];
         post?: never;
         /**
          * Remove Exception
-         * @description Delete the exception for one date, reverting to the weekly rule (�5.3).
+         * @description Delete the exception for one date, reverting to the weekly rule (§5.3).
          */
         delete: operations["remove_exception_api_admin_v1_schedule_exceptions__business_date__delete"];
         options?: never;
@@ -407,9 +407,26 @@ export interface paths {
          *
          *     Only fields the client sent are applied (PATCH semantics); an unknown field
          *     such as ``venue_id`` is dropped by the schema and can never retarget the
-         *     mutation (PROJECT-SPEC �7.1).
+         *     mutation (PROJECT-SPEC §7.1).
          */
         patch: operations["patch_settings_api_admin_v1_settings_patch"];
+        trace?: never;
+    };
+    "/api/admin/v1/system/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** System Status */
+        get: operations["system_status_api_admin_v1_system_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/admin/v1/tables": {
@@ -447,7 +464,7 @@ export interface paths {
         head?: never;
         /**
          * Patch Table
-         * @description Operational ``is_bookable`` toggle; geometry is owned by layout-save (�35).
+         * @description Operational ``is_bookable`` toggle; geometry is owned by layout-save (§35).
          */
         patch: operations["patch_table_api_admin_v1_tables__table_id__patch"];
         trace?: never;
@@ -463,9 +480,80 @@ export interface paths {
         put?: never;
         /**
          * Post Archive Table
-         * @description Archive a table; the live/future-occupancy guard lands with Stage 5 (�29.3).
+         * @description Archive a table; the live/future-occupancy guard lands with Stage 5 (§29.3).
          */
         post: operations["post_archive_table_api_admin_v1_tables__table_id__archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/public/v1/venues/{slug}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Public Venue
+         * @description Return only public venue/hall/table data for one tenant (§34).
+         */
+        get: operations["get_public_venue_api_public_v1_venues__slug__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/public/v1/venues/{slug}/availability": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Public Availability
+         * @description Return a read-only availability snapshot for one venue/date selection (§16, §34).
+         */
+        get: operations["get_public_availability_api_public_v1_venues__slug__availability_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/public/v1/venues/{slug}/bookings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Public Booking
+         * @description Create a public ONLINE booking idempotently (§18, §18.2, §32.2).
+         *
+         *     The client must send:
+         *
+         *     * ``Idempotency-Key``: a UUID generated once per user action and reused for
+         *       network retries of the same action;
+         *     * ``honeypot``: must be empty for a normal user (§40, §50).
+         *
+         *     The server follows the §18.2 ordering: cheap transport guards, slug resolve,
+         *     CAPTCHA hook, soft rate limit, then delegation to the booking core which does
+         *     the idempotency lookup before mutable gates, the kill-switch final gate, and
+         *     the transactional create under the canonical lock order.
+         */
+        post: operations["post_public_booking_api_public_v1_venues__slug__bookings_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -580,7 +668,7 @@ export interface components {
         };
         /**
          * BookingCancel
-         * @description Cancel an unopened booking (�9, �11).
+         * @description Cancel an unopened booking (§9, §11).
          */
         BookingCancel: {
             /** Expected Version */
@@ -595,7 +683,7 @@ export interface components {
         };
         /**
          * BookingChangeTime
-         * @description Move a NEW/WAITING booking to a new interval (�5.5, �32.3).
+         * @description Move a NEW/WAITING booking to a new interval (§5.5, §32.3).
          */
         BookingChangeTime: {
             /**
@@ -613,7 +701,7 @@ export interface components {
         };
         /**
          * BookingCreate
-         * @description Admin manual create (�19). ``ONLINE`` is reserved for the public flow (�8).
+         * @description Admin manual create (§19). ``ONLINE`` is reserved for the public flow (§8).
          *
          *     Times are absolute ISO-8601 instants; the backend derives the business date
          *     and the shift snapshot from the canonical schedule resolver.
@@ -647,7 +735,7 @@ export interface components {
         };
         /**
          * BookingEventSummary
-         * @description One append-only history row; payload holds no PII (�6.10).
+         * @description One append-only history row; payload holds no PII (§6.10).
          */
         BookingEventSummary: {
             /** Actor Type */
@@ -749,7 +837,7 @@ export interface components {
         };
         /**
          * BusinessDayResponse
-         * @description Computed schedule state for one business date (PROJECT-SPEC �5.1, �5.6).
+         * @description Computed schedule state for one business date (PROJECT-SPEC §5.1, §5.6).
          */
         BusinessDayResponse: {
             /**
@@ -893,6 +981,11 @@ export interface components {
             /** Environment */
             environment: string;
             /**
+             * Online Abuse Alerts
+             * @default 0
+             */
+            online_abuse_alerts: number;
+            /**
              * Outbox Unacknowledged Dead
              * @default 0
              */
@@ -908,6 +1001,202 @@ export interface components {
              * @enum {string}
              */
             timezone_capability: "ok" | "unsupported";
+        };
+        /**
+         * PublicAvailabilityResponse
+         * @description Read-only availability snapshot (§16, §34).
+         */
+        PublicAvailabilityResponse: {
+            /**
+             * Business Date
+             * Format: date
+             */
+            business_date: string;
+            /** Is Open */
+            is_open: boolean;
+            /** Shift End */
+            shift_end: string | null;
+            /** Shift Start */
+            shift_start: string | null;
+            /** Tables */
+            tables: components["schemas"]["PublicAvailabilityTable"][];
+            /** Venue Timezone */
+            venue_timezone: string;
+        };
+        /** PublicAvailabilitySlot */
+        PublicAvailabilitySlot: {
+            /** Earliest End */
+            earliest_end: string;
+            /** End Options */
+            end_options: string[];
+            /** Latest End */
+            latest_end: string;
+            /** Start */
+            start: string;
+        };
+        /** PublicAvailabilityTable */
+        PublicAvailabilityTable: {
+            /** Capacity */
+            capacity: number;
+            /** Hall Id */
+            hall_id: number;
+            /** Hall Name */
+            hall_name: string;
+            /** Id */
+            id: number;
+            /** Number */
+            number: string;
+            /** Slots */
+            slots: components["schemas"]["PublicAvailabilitySlot"][];
+        };
+        /**
+         * PublicCreateRequest
+         * @description Public ONLINE booking create payload (§18, §42).
+         *
+         *     The ``honeypot`` field is hidden in the UI and must be empty for a normal
+         *     user (§40, §50). ``captcha_token`` is only required when the CAPTCHA feature
+         *     flag is enabled.
+         */
+        PublicCreateRequest: {
+            /** Captcha Token */
+            captcha_token?: string | null;
+            /**
+             * Ends At
+             * Format: date-time
+             */
+            ends_at: string;
+            /** Guest Comment */
+            guest_comment?: string | null;
+            /** Guest Name */
+            guest_name: string;
+            /** Guest Phone Raw */
+            guest_phone_raw: string;
+            /** Honeypot */
+            honeypot?: string | null;
+            /** Party Size */
+            party_size: number;
+            /** Privacy Policy Version */
+            privacy_policy_version: string;
+            /**
+             * Starts At
+             * Format: date-time
+             */
+            starts_at: string;
+            /** Table Id */
+            table_id: number;
+        };
+        /**
+         * PublicCreateResponse
+         * @description Public booking confirmation (§50).
+         *
+         *     Shows only what the success screen needs: booking number, venue, date, time,
+         *     hall, table, party size. No guest name/phone/comment is returned to avoid
+         *     leaking PII back through the public response (§36, §42).
+         */
+        PublicCreateResponse: {
+            /**
+             * Business Date
+             * Format: date
+             */
+            business_date: string;
+            /**
+             * Ends At
+             * Format: date-time
+             */
+            ends_at: string;
+            /** Id */
+            id: number;
+            /** Number */
+            number: number;
+            /** Party Size */
+            party_size: number;
+            /**
+             * Shift Ends At
+             * Format: date-time
+             */
+            shift_ends_at: string;
+            /**
+             * Shift Starts At
+             * Format: date-time
+             */
+            shift_starts_at: string;
+            /** Source */
+            source: string;
+            /**
+             * Starts At
+             * Format: date-time
+             */
+            starts_at: string;
+            /** Table Ids */
+            table_ids: number[];
+        };
+        /**
+         * PublicHall
+         * @description Public hall with canvas geometry, static elements and active tables.
+         */
+        PublicHall: {
+            /** Canvas Height */
+            canvas_height: number;
+            /** Canvas Width */
+            canvas_width: number;
+            /** Id */
+            id: number;
+            /** Is Bookable */
+            is_bookable: boolean;
+            /** Name */
+            name: string;
+            /** Static Elements */
+            static_elements: (components["schemas"]["WallElement"] | components["schemas"]["StageElement"] | components["schemas"]["BarElement"] | components["schemas"]["ZoneElement"] | components["schemas"]["TextElement"])[];
+            /** Tables */
+            tables: components["schemas"]["PublicTable"][];
+        };
+        /**
+         * PublicTable
+         * @description Public table geometry (no archive/internal fields, §34).
+         */
+        PublicTable: {
+            /** Capacity */
+            capacity: number;
+            /** Hall Id */
+            hall_id: number;
+            /** Height */
+            height: number;
+            /** Id */
+            id: number;
+            /** Number */
+            number: string;
+            /** Rotation */
+            rotation: number;
+            /** Shape */
+            shape: string;
+            /** Width */
+            width: number;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+            /** Z Index */
+            z_index: number;
+        };
+        /**
+         * PublicVenueResponse
+         * @description Public venue data for the booking UI (§34, §50).
+         */
+        PublicVenueResponse: {
+            /** Halls */
+            halls: components["schemas"]["PublicHall"][];
+            /** Is Active */
+            is_active: boolean;
+            /** Name */
+            name: string;
+            /** Online Booking Enabled */
+            online_booking_enabled: boolean;
+            /** Privacy Policy Version */
+            privacy_policy_version: string;
+            /** Slug */
+            slug: string;
+            /** Timezone */
+            timezone: string;
         };
         /** ReadinessResponse */
         ReadinessResponse: {
@@ -952,7 +1241,7 @@ export interface components {
         };
         /**
          * ScheduleExceptionUpdate
-         * @description A date-specific override; it fully replaces the weekly rule (�5.3).
+         * @description A date-specific override; it fully replaces the weekly rule (§5.3).
          */
         ScheduleExceptionUpdate: {
             /** Close Time */
@@ -1019,9 +1308,14 @@ export interface components {
             /** Status */
             status: string;
         };
+        /** SystemStatusResponse */
+        SystemStatusResponse: {
+            /** Online Abuse Alert */
+            online_abuse_alert: boolean;
+        };
         /**
          * TableSummary
-         * @description Table geometry and state (PROJECT-SPEC �6.5).
+         * @description Table geometry and state (PROJECT-SPEC §6.5).
          */
         TableSummary: {
             /** Archived At */
@@ -1055,7 +1349,7 @@ export interface components {
         };
         /**
          * TableUpdate
-         * @description Operational table toggle. Geometry is owned by layout-save, not here (�35).
+         * @description Operational table toggle. Geometry is owned by layout-save, not here (§35).
          */
         TableUpdate: {
             /** Is Bookable */
@@ -1925,6 +2219,26 @@ export interface operations {
             };
         };
     };
+    system_status_api_admin_v1_system_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SystemStatusResponse"];
+                };
+            };
+        };
+    };
     get_tables_api_admin_v1_tables_get: {
         parameters: {
             query?: {
@@ -2020,6 +2334,173 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
                 };
+            };
+        };
+    };
+    get_public_venue_api_public_v1_venues__slug__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicVenueResponse"];
+                };
+            };
+            /** @description venue not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_public_availability_api_public_v1_venues__slug__availability_get: {
+        parameters: {
+            query?: {
+                business_date?: string | null;
+                hall_id?: number | null;
+                table_id?: number | null;
+                party_size?: number;
+            };
+            header?: never;
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicAvailabilityResponse"];
+                };
+            };
+            /** @description venue not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    post_public_booking_api_public_v1_venues__slug__bookings_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "Idempotency-Key"?: string;
+            };
+            path: {
+                slug: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description idempotent replay */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PublicCreateResponse"];
+                };
+            };
+            /** @description new booking */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description missing or invalid Idempotency-Key / honeypot / captcha */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description venue not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description idempotency key reused, booking conflict, or online disabled */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description rate limited */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description service unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

@@ -1,3 +1,4 @@
+import { PublicBookingPage } from "@/pages/PublicBookingPage";
 import { Route, Routes } from "react-router-dom";
 
 import { RequireAdmin } from "@/components/RequireAdmin";
@@ -17,6 +18,7 @@ import { SystemStatusPage } from "@/pages/SystemStatusPage";
 export function App() {
   return (
     <Routes>
+      <Route path="/b/:slug" element={<PublicBookingPage />} />
       <Route path="/" element={<SystemStatusPage />} />
       <Route path="/admin/login" element={<AdminLoginPage />} />
       <Route

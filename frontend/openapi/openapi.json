@@ -89,7 +89,7 @@
         "type": "object"
       },
       "BookingCancel": {
-        "description": "Cancel an unopened booking (ง9, ง11).",
+        "description": "Cancel an unopened booking (ยง9, ยง11).",
         "properties": {
           "expected_version": {
             "minimum": 1.0,
@@ -137,7 +137,7 @@
         "type": "object"
       },
       "BookingChangeTime": {
-        "description": "Move a NEW/WAITING booking to a new interval (ง5.5, ง32.3).",
+        "description": "Move a NEW/WAITING booking to a new interval (ยง5.5, ยง32.3).",
         "properties": {
           "ends_at": {
             "format": "date-time",
@@ -164,7 +164,7 @@
         "type": "object"
       },
       "BookingCreate": {
-        "description": "Admin manual create (ง19). ``ONLINE`` is reserved for the public flow (ง8).\n\nTimes are absolute ISO-8601 instants; the backend derives the business date\nand the shift snapshot from the canonical schedule resolver.",
+        "description": "Admin manual create (ยง19). ``ONLINE`` is reserved for the public flow (ยง8).\n\nTimes are absolute ISO-8601 instants; the backend derives the business date\nand the shift snapshot from the canonical schedule resolver.",
         "properties": {
           "ends_at": {
             "format": "date-time",
@@ -244,7 +244,7 @@
         "type": "object"
       },
       "BookingEventSummary": {
-        "description": "One append-only history row; payload holds no PII (ง6.10).",
+        "description": "One append-only history row; payload holds no PII (ยง6.10).",
         "properties": {
           "actor_type": {
             "title": "Actor Type",
@@ -490,7 +490,7 @@
         "type": "object"
       },
       "BusinessDayResponse": {
-        "description": "Computed schedule state for one business date (PROJECT-SPEC ง5.1, ง5.6).",
+        "description": "Computed schedule state for one business date (PROJECT-SPEC ยง5.1, ยง5.6).",
         "properties": {
           "business_date": {
             "format": "date",
@@ -888,6 +888,11 @@
             "title": "Environment",
             "type": "string"
           },
+          "online_abuse_alerts": {
+            "default": 0,
+            "title": "Online Abuse Alerts",
+            "type": "integer"
+          },
           "outbox_unacknowledged_dead": {
             "default": 0,
             "title": "Outbox Unacknowledged Dead",
@@ -917,6 +922,477 @@
           "environment"
         ],
         "title": "OpsResponse",
+        "type": "object"
+      },
+      "PublicAvailabilityResponse": {
+        "description": "Read-only availability snapshot (ยง16, ยง34).",
+        "properties": {
+          "business_date": {
+            "format": "date",
+            "title": "Business Date",
+            "type": "string"
+          },
+          "is_open": {
+            "title": "Is Open",
+            "type": "boolean"
+          },
+          "shift_end": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shift End"
+          },
+          "shift_start": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shift Start"
+          },
+          "tables": {
+            "items": {
+              "$ref": "#/components/schemas/PublicAvailabilityTable"
+            },
+            "title": "Tables",
+            "type": "array"
+          },
+          "venue_timezone": {
+            "title": "Venue Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "business_date",
+          "venue_timezone",
+          "shift_start",
+          "shift_end",
+          "is_open",
+          "tables"
+        ],
+        "title": "PublicAvailabilityResponse",
+        "type": "object"
+      },
+      "PublicAvailabilitySlot": {
+        "properties": {
+          "earliest_end": {
+            "title": "Earliest End",
+            "type": "string"
+          },
+          "end_options": {
+            "items": {
+              "type": "string"
+            },
+            "title": "End Options",
+            "type": "array"
+          },
+          "latest_end": {
+            "title": "Latest End",
+            "type": "string"
+          },
+          "start": {
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "earliest_end",
+          "latest_end",
+          "end_options"
+        ],
+        "title": "PublicAvailabilitySlot",
+        "type": "object"
+      },
+      "PublicAvailabilityTable": {
+        "properties": {
+          "capacity": {
+            "title": "Capacity",
+            "type": "integer"
+          },
+          "hall_id": {
+            "title": "Hall Id",
+            "type": "integer"
+          },
+          "hall_name": {
+            "title": "Hall Name",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "number": {
+            "title": "Number",
+            "type": "string"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/PublicAvailabilitySlot"
+            },
+            "title": "Slots",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "capacity",
+          "hall_id",
+          "hall_name",
+          "slots"
+        ],
+        "title": "PublicAvailabilityTable",
+        "type": "object"
+      },
+      "PublicCreateRequest": {
+        "description": "Public ONLINE booking create payload (ยง18, ยง42).\n\nThe ``honeypot`` field is hidden in the UI and must be empty for a normal\nuser (ยง40, ยง50). ``captcha_token`` is only required when the CAPTCHA feature\nflag is enabled.",
+        "properties": {
+          "captcha_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Captcha Token"
+          },
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "guest_comment": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Guest Comment"
+          },
+          "guest_name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Guest Name",
+            "type": "string"
+          },
+          "guest_phone_raw": {
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Guest Phone Raw",
+            "type": "string"
+          },
+          "honeypot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Honeypot"
+          },
+          "party_size": {
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Party Size",
+            "type": "integer"
+          },
+          "privacy_policy_version": {
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Privacy Policy Version",
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "table_id": {
+            "title": "Table Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "table_id",
+          "party_size",
+          "starts_at",
+          "ends_at",
+          "guest_name",
+          "guest_phone_raw",
+          "privacy_policy_version"
+        ],
+        "title": "PublicCreateRequest",
+        "type": "object"
+      },
+      "PublicCreateResponse": {
+        "description": "Public booking confirmation (ยง50).\n\nShows only what the success screen needs: booking number, venue, date, time,\nhall, table, party size. No guest name/phone/comment is returned to avoid\nleaking PII back through the public response (ยง36, ยง42).",
+        "properties": {
+          "business_date": {
+            "format": "date",
+            "title": "Business Date",
+            "type": "string"
+          },
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "number": {
+            "title": "Number",
+            "type": "integer"
+          },
+          "party_size": {
+            "title": "Party Size",
+            "type": "integer"
+          },
+          "shift_ends_at": {
+            "format": "date-time",
+            "title": "Shift Ends At",
+            "type": "string"
+          },
+          "shift_starts_at": {
+            "format": "date-time",
+            "title": "Shift Starts At",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "table_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Table Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "business_date",
+          "shift_starts_at",
+          "shift_ends_at",
+          "starts_at",
+          "ends_at",
+          "party_size",
+          "table_ids",
+          "source"
+        ],
+        "title": "PublicCreateResponse",
+        "type": "object"
+      },
+      "PublicHall": {
+        "description": "Public hall with canvas geometry, static elements and active tables.",
+        "properties": {
+          "canvas_height": {
+            "title": "Canvas Height",
+            "type": "integer"
+          },
+          "canvas_width": {
+            "title": "Canvas Width",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_bookable": {
+            "title": "Is Bookable",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "static_elements": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "bar": "#/components/schemas/BarElement",
+                  "stage": "#/components/schemas/StageElement",
+                  "text": "#/components/schemas/TextElement",
+                  "wall": "#/components/schemas/WallElement",
+                  "zone": "#/components/schemas/ZoneElement"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/WallElement"
+                },
+                {
+                  "$ref": "#/components/schemas/StageElement"
+                },
+                {
+                  "$ref": "#/components/schemas/BarElement"
+                },
+                {
+                  "$ref": "#/components/schemas/ZoneElement"
+                },
+                {
+                  "$ref": "#/components/schemas/TextElement"
+                }
+              ]
+            },
+            "title": "Static Elements",
+            "type": "array"
+          },
+          "tables": {
+            "items": {
+              "$ref": "#/components/schemas/PublicTable"
+            },
+            "title": "Tables",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "is_bookable",
+          "canvas_width",
+          "canvas_height",
+          "static_elements",
+          "tables"
+        ],
+        "title": "PublicHall",
+        "type": "object"
+      },
+      "PublicTable": {
+        "description": "Public table geometry (no archive/internal fields, ยง34).",
+        "properties": {
+          "capacity": {
+            "title": "Capacity",
+            "type": "integer"
+          },
+          "hall_id": {
+            "title": "Hall Id",
+            "type": "integer"
+          },
+          "height": {
+            "title": "Height",
+            "type": "number"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "number": {
+            "title": "Number",
+            "type": "string"
+          },
+          "rotation": {
+            "title": "Rotation",
+            "type": "number"
+          },
+          "shape": {
+            "title": "Shape",
+            "type": "string"
+          },
+          "width": {
+            "title": "Width",
+            "type": "number"
+          },
+          "x": {
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "title": "Y",
+            "type": "number"
+          },
+          "z_index": {
+            "title": "Z Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "hall_id",
+          "number",
+          "capacity",
+          "x",
+          "y",
+          "width",
+          "height",
+          "rotation",
+          "shape",
+          "z_index"
+        ],
+        "title": "PublicTable",
+        "type": "object"
+      },
+      "PublicVenueResponse": {
+        "description": "Public venue data for the booking UI (ยง34, ยง50).",
+        "properties": {
+          "halls": {
+            "items": {
+              "$ref": "#/components/schemas/PublicHall"
+            },
+            "title": "Halls",
+            "type": "array"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "online_booking_enabled": {
+            "title": "Online Booking Enabled",
+            "type": "boolean"
+          },
+          "privacy_policy_version": {
+            "title": "Privacy Policy Version",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "slug",
+          "name",
+          "timezone",
+          "is_active",
+          "online_booking_enabled",
+          "privacy_policy_version",
+          "halls"
+        ],
+        "title": "PublicVenueResponse",
         "type": "object"
       },
       "ReadinessResponse": {
@@ -1034,7 +1510,7 @@
         "type": "object"
       },
       "ScheduleExceptionUpdate": {
-        "description": "A date-specific override; it fully replaces the weekly rule (ง5.3).",
+        "description": "A date-specific override; it fully replaces the weekly rule (ยง5.3).",
         "properties": {
           "close_time": {
             "anyOf": [
@@ -1223,8 +1699,21 @@
         "title": "StatusResponse",
         "type": "object"
       },
+      "SystemStatusResponse": {
+        "properties": {
+          "online_abuse_alert": {
+            "title": "Online Abuse Alert",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "online_abuse_alert"
+        ],
+        "title": "SystemStatusResponse",
+        "type": "object"
+      },
       "TableSummary": {
-        "description": "Table geometry and state (PROJECT-SPEC ง6.5).",
+        "description": "Table geometry and state (PROJECT-SPEC ยง6.5).",
         "properties": {
           "archived_at": {
             "anyOf": [
@@ -1317,7 +1806,7 @@
         "type": "object"
       },
       "TableUpdate": {
-        "description": "Operational table toggle. Geometry is owned by layout-save, not here (ง35).",
+        "description": "Operational table toggle. Geometry is owned by layout-save, not here (ยง35).",
         "properties": {
           "is_bookable": {
             "title": "Is Bookable",
@@ -1667,7 +2156,7 @@
   "paths": {
     "/api/admin/v1/auth/login": {
       "post": {
-        "description": "Authenticate and start a server-side session.\n\nWrong login and wrong password return the same response (ง39.5). Two cheap\nrate limits run before the CPU-bound Argon2id verify so the bounded pool\ncannot be saturated by garbage logins.",
+        "description": "Authenticate and start a server-side session.\n\nWrong login and wrong password return the same response (ยง39.5). Two cheap\nrate limits run before the CPU-bound Argon2id verify so the bounded pool\ncannot be saturated by garbage logins.",
         "operationId": "login_api_admin_v1_auth_login_post",
         "requestBody": {
           "content": {
@@ -1753,7 +2242,7 @@
     },
     "/api/admin/v1/bookings": {
       "get": {
-        "description": "Cursor/limit list with the ง35 filters (newest first).",
+        "description": "Cursor/limit list with the ยง35 filters (newest first).",
         "operationId": "get_bookings_api_admin_v1_bookings_get",
         "parameters": [
           {
@@ -1894,7 +2383,7 @@
         ]
       },
       "post": {
-        "description": "Create a manual booking idempotently (ง19, ง32.2).\n\nA fresh booking is ``201``; a replay of the same key+payload is ``200`` with\nthe same booking identity and no new side effects (ง36).",
+        "description": "Create a manual booking idempotently (ยง19, ยง32.2).\n\nA fresh booking is ``201``; a replay of the same key+payload is ``200`` with\nthe same booking identity and no new side effects (ยง36).",
         "operationId": "post_booking_api_admin_v1_bookings_post",
         "parameters": [
           {
@@ -1947,7 +2436,7 @@
     },
     "/api/admin/v1/bookings/unresolved": {
       "get": {
-        "description": "NEW/WAITING bookings whose planned interval has already ended (ง17.3).",
+        "description": "NEW/WAITING bookings whose planned interval has already ended (ยง17.3).",
         "operationId": "get_unresolved_api_admin_v1_bookings_unresolved_get",
         "parameters": [
           {
@@ -2009,7 +2498,7 @@
     },
     "/api/admin/v1/bookings/{booking_id}": {
       "get": {
-        "description": "Return one booking of this venue, or 404 for any other tenant (ง7.1).",
+        "description": "Return one booking of this venue, or 404 for any other tenant (ยง7.1).",
         "operationId": "get_booking_detail_api_admin_v1_bookings__booking_id__get",
         "parameters": [
           {
@@ -2052,7 +2541,7 @@
     },
     "/api/admin/v1/bookings/{booking_id}/cancel": {
       "post": {
-        "description": "Cancel an unopened booking; deactivates its occupancies (ง9, ง13).",
+        "description": "Cancel an unopened booking; deactivates its occupancies (ยง9, ยง13).",
         "operationId": "post_cancel_booking_api_admin_v1_bookings__booking_id__cancel_post",
         "parameters": [
           {
@@ -2105,7 +2594,7 @@
     },
     "/api/admin/v1/bookings/{booking_id}/change-time": {
       "post": {
-        "description": "Reschedule a NEW/WAITING booking and rewrite its shift snapshot (ง5.5).",
+        "description": "Reschedule a NEW/WAITING booking and rewrite its shift snapshot (ยง5.5).",
         "operationId": "post_change_time_api_admin_v1_bookings__booking_id__change_time_post",
         "parameters": [
           {
@@ -2158,7 +2647,7 @@
     },
     "/api/admin/v1/bookings/{booking_id}/history": {
       "get": {
-        "description": "Return the append-only history ordered by ``booking_events.id`` (ง6.10).",
+        "description": "Return the append-only history ordered by ``booking_events.id`` (ยง6.10).",
         "operationId": "get_booking_history_api_admin_v1_bookings__booking_id__history_get",
         "parameters": [
           {
@@ -2326,7 +2815,7 @@
         ]
       },
       "patch": {
-        "description": "Update a hall's name, canvas size or operational bookability.\n\nA canvas-size change is a layout-owned edit and bumps ``layout_revision``;\n``is_bookable`` never does (ง31).",
+        "description": "Update a hall's name, canvas size or operational bookability.\n\nA canvas-size change is a layout-owned edit and bumps ``layout_revision``;\n``is_bookable`` never does (ยง31).",
         "operationId": "patch_hall_api_admin_v1_halls__hall_id__patch",
         "parameters": [
           {
@@ -2379,7 +2868,7 @@
     },
     "/api/admin/v1/halls/{hall_id}/archive": {
       "post": {
-        "description": "Archive a hall; blocked while it still has non-archived tables (ง29.5).",
+        "description": "Archive a hall; blocked while it still has non-archived tables (ยง29.5).",
         "operationId": "post_archive_hall_api_admin_v1_halls__hall_id__archive_post",
         "parameters": [
           {
@@ -2464,7 +2953,7 @@
         ]
       },
       "put": {
-        "description": "Replace the weekly schedule, validating grid rules and adjacent overlaps.\n\nThe request must define every weekday; a shift that crosses midnight is\nexpressed as ``close_time < open_time`` (ง5.2). A schedule whose adjacent\nshifts would overlap is rejected with ``SCHEDULE_OVERLAP`` (ง5.4).",
+        "description": "Replace the weekly schedule, validating grid rules and adjacent overlaps.\n\nThe request must define every weekday; a shift that crosses midnight is\nexpressed as ``close_time < open_time`` (ยง5.2). A schedule whose adjacent\nshifts would overlap is rejected with ``SCHEDULE_OVERLAP`` (ยง5.4).",
         "operationId": "put_weekly_schedule_api_admin_v1_schedule_put",
         "parameters": [
           {
@@ -2518,7 +3007,7 @@
     },
     "/api/admin/v1/schedule/business-day": {
       "get": {
-        "description": "Return the computed state for a business date (ง5.1, ง5.6).\n\nWith no ``business_date`` the *current* business date is used — which may be\nyesterday's date while an overnight shift is still running.",
+        "description": "Return the computed state for a business date (ยง5.1, ยง5.6).\n\nWith no ``business_date`` the *current* business date is used โ€” which may be\nyesterday's date while an overnight shift is still running.",
         "operationId": "get_business_day_api_admin_v1_schedule_business_day_get",
         "parameters": [
           {
@@ -2591,7 +3080,7 @@
     },
     "/api/admin/v1/schedule/exceptions/{business_date}": {
       "delete": {
-        "description": "Delete the exception for one date, reverting to the weekly rule (ง5.3).",
+        "description": "Delete the exception for one date, reverting to the weekly rule (ยง5.3).",
         "operationId": "remove_exception_api_admin_v1_schedule_exceptions__business_date__delete",
         "parameters": [
           {
@@ -2636,7 +3125,7 @@
         ]
       },
       "put": {
-        "description": "Create or replace the exception for one business date (ง5.3).",
+        "description": "Create or replace the exception for one business date (ยง5.3).",
         "operationId": "put_exception_api_admin_v1_schedule_exceptions__business_date__put",
         "parameters": [
           {
@@ -2720,7 +3209,7 @@
         ]
       },
       "patch": {
-        "description": "Update this venue's editable settings.\n\nOnly fields the client sent are applied (PATCH semantics); an unknown field\nsuch as ``venue_id`` is dropped by the schema and can never retarget the\nmutation (PROJECT-SPEC ง7.1).",
+        "description": "Update this venue's editable settings.\n\nOnly fields the client sent are applied (PATCH semantics); an unknown field\nsuch as ``venue_id`` is dropped by the schema and can never retarget the\nmutation (PROJECT-SPEC ยง7.1).",
         "operationId": "patch_settings_api_admin_v1_settings_patch",
         "requestBody": {
           "content": {
@@ -2757,6 +3246,27 @@
         "summary": "Patch Settings",
         "tags": [
           "admin-settings"
+        ]
+      }
+    },
+    "/api/admin/v1/system/status": {
+      "get": {
+        "operationId": "system_status_api_admin_v1_system_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "System Status",
+        "tags": [
+          "admin-account"
         ]
       }
     },
@@ -2822,7 +3332,7 @@
     },
     "/api/admin/v1/tables/{table_id}": {
       "patch": {
-        "description": "Operational ``is_bookable`` toggle; geometry is owned by layout-save (ง35).",
+        "description": "Operational ``is_bookable`` toggle; geometry is owned by layout-save (ยง35).",
         "operationId": "patch_table_api_admin_v1_tables__table_id__patch",
         "parameters": [
           {
@@ -2875,7 +3385,7 @@
     },
     "/api/admin/v1/tables/{table_id}/archive": {
       "post": {
-        "description": "Archive a table; the live/future-occupancy guard lands with Stage 5 (ง29.3).",
+        "description": "Archive a table; the live/future-occupancy guard lands with Stage 5 (ยง29.3).",
         "operationId": "post_archive_table_api_admin_v1_tables__table_id__archive_post",
         "parameters": [
           {
@@ -2913,6 +3423,243 @@
         "summary": "Post Archive Table",
         "tags": [
           "admin-halls"
+        ]
+      }
+    },
+    "/api/public/v1/venues/{slug}": {
+      "get": {
+        "description": "Return only public venue/hall/table data for one tenant (ยง34).",
+        "operationId": "get_public_venue_api_public_v1_venues__slug__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicVenueResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "venue not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Public Venue",
+        "tags": [
+          "public-booking"
+        ]
+      }
+    },
+    "/api/public/v1/venues/{slug}/availability": {
+      "get": {
+        "description": "Return a read-only availability snapshot for one venue/date selection (ยง16, ยง34).",
+        "operationId": "get_public_availability_api_public_v1_venues__slug__availability_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "business_date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Business Date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "hall_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Hall Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "table_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Table Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "party_size",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Party Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicAvailabilityResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "venue not found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "description": "rate limited"
+          }
+        },
+        "summary": "Get Public Availability",
+        "tags": [
+          "public-booking"
+        ]
+      }
+    },
+    "/api/public/v1/venues/{slug}/bookings": {
+      "post": {
+        "description": "Create a public ONLINE booking idempotently (ยง18, ยง18.2, ยง32.2).\n\nThe client must send:\n\n* ``Idempotency-Key``: a UUID generated once per user action and reused for\n  network retries of the same action;\n* ``honeypot``: must be empty for a normal user (ยง40, ยง50).\n\nThe server follows the ยง18.2 ordering: cheap transport guards, slug resolve,\nCAPTCHA hook, soft rate limit, then delegation to the booking core which does\nthe idempotency lookup before mutable gates, the kill-switch final gate, and\nthe transactional create under the canonical lock order.",
+        "operationId": "post_public_booking_api_public_v1_venues__slug__bookings_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "slug",
+            "required": true,
+            "schema": {
+              "title": "Slug",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicCreateResponse"
+                }
+              }
+            },
+            "description": "idempotent replay"
+          },
+          "201": {
+            "description": "new booking"
+          },
+          "400": {
+            "description": "missing or invalid Idempotency-Key / honeypot / captcha"
+          },
+          "404": {
+            "description": "venue not found"
+          },
+          "409": {
+            "description": "idempotency key reused, booking conflict, or online disabled"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "429": {
+            "description": "rate limited"
+          },
+          "503": {
+            "description": "service unavailable"
+          }
+        },
+        "summary": "Post Public Booking",
+        "tags": [
+          "public-booking"
         ]
       }
     },
