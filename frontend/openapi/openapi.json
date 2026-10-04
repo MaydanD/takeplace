@@ -88,6 +88,407 @@
         "title": "BarElement",
         "type": "object"
       },
+      "BookingCancel": {
+        "description": "Cancel an unopened booking (§9, §11).",
+        "properties": {
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "reason": {
+            "enum": [
+              "GUEST_CANCELED",
+              "NO_SHOW",
+              "DUPLICATE",
+              "UNREACHABLE",
+              "RESCHEDULED",
+              "GUEST_LATE",
+              "CREATION_ERROR",
+              "TERMS_REFUSED",
+              "INVALID_DATA",
+              "MOVED_ELSEWHERE",
+              "NO_TABLES",
+              "VENUE_CLOSED",
+              "ENTRY_REFUSED",
+              "OTHER"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_version",
+          "reason"
+        ],
+        "title": "BookingCancel",
+        "type": "object"
+      },
+      "BookingChangeTime": {
+        "description": "Move a NEW/WAITING booking to a new interval (§5.5, §32.3).",
+        "properties": {
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_version",
+          "starts_at",
+          "ends_at"
+        ],
+        "title": "BookingChangeTime",
+        "type": "object"
+      },
+      "BookingCreate": {
+        "description": "Admin manual create (§19). ``ONLINE`` is reserved for the public flow (§8).\n\nTimes are absolute ISO-8601 instants; the backend derives the business date\nand the shift snapshot from the canonical schedule resolver.",
+        "properties": {
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "guest_comment": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Guest Comment"
+          },
+          "guest_name": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Guest Name",
+            "type": "string"
+          },
+          "guest_phone_raw": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Guest Phone Raw"
+          },
+          "party_size": {
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Party Size",
+            "type": "integer"
+          },
+          "source": {
+            "enum": [
+              "PHONE",
+              "VK",
+              "WALK_IN",
+              "OTHER"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "table_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Table Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "starts_at",
+          "ends_at",
+          "table_ids",
+          "party_size",
+          "source",
+          "guest_name"
+        ],
+        "title": "BookingCreate",
+        "type": "object"
+      },
+      "BookingEventSummary": {
+        "description": "One append-only history row; payload holds no PII (§6.10).",
+        "properties": {
+          "actor_type": {
+            "title": "Actor Type",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_type": {
+            "title": "Event Type",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "event_type",
+          "actor_type",
+          "payload",
+          "created_at"
+        ],
+        "title": "BookingEventSummary",
+        "type": "object"
+      },
+      "BookingHistoryResponse": {
+        "properties": {
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/BookingEventSummary"
+            },
+            "title": "Events",
+            "type": "array"
+          }
+        },
+        "required": [
+          "events"
+        ],
+        "title": "BookingHistoryResponse",
+        "type": "object"
+      },
+      "BookingListResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BookingSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "BookingListResponse",
+        "type": "object"
+      },
+      "BookingSummary": {
+        "description": "Booking representation for the admin book (no idempotency keys/HMACs).",
+        "properties": {
+          "business_date": {
+            "format": "date",
+            "title": "Business Date",
+            "type": "string"
+          },
+          "canceled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Canceled At"
+          },
+          "cancellation_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cancellation Reason"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "ends_at": {
+            "format": "date-time",
+            "title": "Ends At",
+            "type": "string"
+          },
+          "guest_comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Guest Comment"
+          },
+          "guest_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Guest Name"
+          },
+          "guest_phone_normalized": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Guest Phone Normalized"
+          },
+          "guest_phone_raw": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Guest Phone Raw"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "number": {
+            "title": "Number",
+            "type": "integer"
+          },
+          "party_size": {
+            "title": "Party Size",
+            "type": "integer"
+          },
+          "shift_ends_at": {
+            "format": "date-time",
+            "title": "Shift Ends At",
+            "type": "string"
+          },
+          "shift_starts_at": {
+            "format": "date-time",
+            "title": "Shift Starts At",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "starts_at": {
+            "format": "date-time",
+            "title": "Starts At",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "table_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Table Ids",
+            "type": "array"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "venue_id": {
+            "title": "Venue Id",
+            "type": "integer"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "venue_id",
+          "business_date",
+          "status",
+          "source",
+          "party_size",
+          "guest_name",
+          "guest_phone_raw",
+          "guest_phone_normalized",
+          "guest_comment",
+          "shift_starts_at",
+          "shift_ends_at",
+          "starts_at",
+          "ends_at",
+          "table_ids",
+          "version",
+          "canceled_at",
+          "cancellation_reason",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "BookingSummary",
+        "type": "object"
+      },
       "BusinessDayResponse": {
         "description": "Computed schedule state for one business date (PROJECT-SPEC §5.1, §5.6).",
         "properties": {
@@ -1350,6 +1751,454 @@
         ]
       }
     },
+    "/api/admin/v1/bookings": {
+      "get": {
+        "description": "Cursor/limit list with the §35 filters (newest first).",
+        "operationId": "get_bookings_api_admin_v1_bookings_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "business_date",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Business Date"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source"
+            }
+          },
+          {
+            "in": "query",
+            "name": "table_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Table Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "phone",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Phone"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Bookings",
+        "tags": [
+          "admin-bookings"
+        ]
+      },
+      "post": {
+        "description": "Create a manual booking idempotently (§19, §32.2).\n\nA fresh booking is ``201``; a replay of the same key+payload is ``200`` with\nthe same booking identity and no new side effects (§36).",
+        "operationId": "post_booking_api_admin_v1_bookings_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BookingCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Booking",
+        "tags": [
+          "admin-bookings"
+        ]
+      }
+    },
+    "/api/admin/v1/bookings/unresolved": {
+      "get": {
+        "description": "NEW/WAITING bookings whose planned interval has already ended (§17.3).",
+        "operationId": "get_unresolved_api_admin_v1_bookings_unresolved_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Unresolved",
+        "tags": [
+          "admin-bookings"
+        ]
+      }
+    },
+    "/api/admin/v1/bookings/{booking_id}": {
+      "get": {
+        "description": "Return one booking of this venue, or 404 for any other tenant (§7.1).",
+        "operationId": "get_booking_detail_api_admin_v1_bookings__booking_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "title": "Booking Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Booking Detail",
+        "tags": [
+          "admin-bookings"
+        ]
+      }
+    },
+    "/api/admin/v1/bookings/{booking_id}/cancel": {
+      "post": {
+        "description": "Cancel an unopened booking; deactivates its occupancies (§9, §13).",
+        "operationId": "post_cancel_booking_api_admin_v1_bookings__booking_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "title": "Booking Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BookingCancel"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Cancel Booking",
+        "tags": [
+          "admin-bookings"
+        ]
+      }
+    },
+    "/api/admin/v1/bookings/{booking_id}/change-time": {
+      "post": {
+        "description": "Reschedule a NEW/WAITING booking and rewrite its shift snapshot (§5.5).",
+        "operationId": "post_change_time_api_admin_v1_bookings__booking_id__change_time_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "title": "Booking Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BookingChangeTime"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Change Time",
+        "tags": [
+          "admin-bookings"
+        ]
+      }
+    },
+    "/api/admin/v1/bookings/{booking_id}/history": {
+      "get": {
+        "description": "Return the append-only history ordered by ``booking_events.id`` (§6.10).",
+        "operationId": "get_booking_history_api_admin_v1_bookings__booking_id__history_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "title": "Booking Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingHistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Booking History",
+        "tags": [
+          "admin-bookings"
+        ]
+      }
+    },
     "/api/admin/v1/halls": {
       "get": {
         "description": "List this venue's halls (archived halls are hidden unless requested).",
@@ -1617,6 +2466,18 @@
       "put": {
         "description": "Replace the weekly schedule, validating grid rules and adjacent overlaps.\n\nThe request must define every weekday; a shift that crosses midnight is\nexpressed as ``close_time < open_time`` (§5.2). A schedule whose adjacent\nshifts would overlap is rejected with ``SCHEDULE_OVERLAP`` (§5.4).",
         "operationId": "put_weekly_schedule_api_admin_v1_schedule_put",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "confirm",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Confirm",
+              "type": "boolean"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1742,6 +2603,16 @@
               "title": "Business Date",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "confirm",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Confirm",
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -1776,6 +2647,16 @@
               "format": "date",
               "title": "Business Date",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "confirm",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Confirm",
+              "type": "boolean"
             }
           }
         ],

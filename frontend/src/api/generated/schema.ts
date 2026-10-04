@@ -69,6 +69,133 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/v1/bookings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Bookings
+         * @description Cursor/limit list with the �35 filters (newest first).
+         */
+        get: operations["get_bookings_api_admin_v1_bookings_get"];
+        put?: never;
+        /**
+         * Post Booking
+         * @description Create a manual booking idempotently (�19, �32.2).
+         *
+         *     A fresh booking is ``201``; a replay of the same key+payload is ``200`` with
+         *     the same booking identity and no new side effects (�36).
+         */
+        post: operations["post_booking_api_admin_v1_bookings_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/v1/bookings/unresolved": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Unresolved
+         * @description NEW/WAITING bookings whose planned interval has already ended (�17.3).
+         */
+        get: operations["get_unresolved_api_admin_v1_bookings_unresolved_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/v1/bookings/{booking_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Booking Detail
+         * @description Return one booking of this venue, or 404 for any other tenant (�7.1).
+         */
+        get: operations["get_booking_detail_api_admin_v1_bookings__booking_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/v1/bookings/{booking_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Cancel Booking
+         * @description Cancel an unopened booking; deactivates its occupancies (�9, �13).
+         */
+        post: operations["post_cancel_booking_api_admin_v1_bookings__booking_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/v1/bookings/{booking_id}/change-time": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Change Time
+         * @description Reschedule a NEW/WAITING booking and rewrite its shift snapshot (�5.5).
+         */
+        post: operations["post_change_time_api_admin_v1_bookings__booking_id__change_time_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/v1/bookings/{booking_id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Booking History
+         * @description Return the append-only history ordered by ``booking_events.id`` (�6.10).
+         */
+        get: operations["get_booking_history_api_admin_v1_bookings__booking_id__history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/v1/halls": {
         parameters: {
             query?: never;
@@ -450,6 +577,175 @@ export interface components {
              * @default 0
              */
             z_index: number;
+        };
+        /**
+         * BookingCancel
+         * @description Cancel an unopened booking (�9, �11).
+         */
+        BookingCancel: {
+            /** Expected Version */
+            expected_version: number;
+            /** Note */
+            note?: string | null;
+            /**
+             * Reason
+             * @enum {string}
+             */
+            reason: "GUEST_CANCELED" | "NO_SHOW" | "DUPLICATE" | "UNREACHABLE" | "RESCHEDULED" | "GUEST_LATE" | "CREATION_ERROR" | "TERMS_REFUSED" | "INVALID_DATA" | "MOVED_ELSEWHERE" | "NO_TABLES" | "VENUE_CLOSED" | "ENTRY_REFUSED" | "OTHER";
+        };
+        /**
+         * BookingChangeTime
+         * @description Move a NEW/WAITING booking to a new interval (�5.5, �32.3).
+         */
+        BookingChangeTime: {
+            /**
+             * Ends At
+             * Format: date-time
+             */
+            ends_at: string;
+            /** Expected Version */
+            expected_version: number;
+            /**
+             * Starts At
+             * Format: date-time
+             */
+            starts_at: string;
+        };
+        /**
+         * BookingCreate
+         * @description Admin manual create (�19). ``ONLINE`` is reserved for the public flow (�8).
+         *
+         *     Times are absolute ISO-8601 instants; the backend derives the business date
+         *     and the shift snapshot from the canonical schedule resolver.
+         */
+        BookingCreate: {
+            /**
+             * Ends At
+             * Format: date-time
+             */
+            ends_at: string;
+            /** Guest Comment */
+            guest_comment?: string | null;
+            /** Guest Name */
+            guest_name: string;
+            /** Guest Phone Raw */
+            guest_phone_raw?: string | null;
+            /** Party Size */
+            party_size: number;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "PHONE" | "VK" | "WALK_IN" | "OTHER";
+            /**
+             * Starts At
+             * Format: date-time
+             */
+            starts_at: string;
+            /** Table Ids */
+            table_ids: number[];
+        };
+        /**
+         * BookingEventSummary
+         * @description One append-only history row; payload holds no PII (�6.10).
+         */
+        BookingEventSummary: {
+            /** Actor Type */
+            actor_type: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Event Type */
+            event_type: string;
+            /** Id */
+            id: number;
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+        };
+        /** BookingHistoryResponse */
+        BookingHistoryResponse: {
+            /** Events */
+            events: components["schemas"]["BookingEventSummary"][];
+        };
+        /** BookingListResponse */
+        BookingListResponse: {
+            /** Items */
+            items: components["schemas"]["BookingSummary"][];
+            /** Next Cursor */
+            next_cursor?: number | null;
+        };
+        /**
+         * BookingSummary
+         * @description Booking representation for the admin book (no idempotency keys/HMACs).
+         */
+        BookingSummary: {
+            /**
+             * Business Date
+             * Format: date
+             */
+            business_date: string;
+            /** Canceled At */
+            canceled_at: string | null;
+            /** Cancellation Reason */
+            cancellation_reason: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Ends At
+             * Format: date-time
+             */
+            ends_at: string;
+            /** Guest Comment */
+            guest_comment: string | null;
+            /** Guest Name */
+            guest_name: string | null;
+            /** Guest Phone Normalized */
+            guest_phone_normalized: string | null;
+            /** Guest Phone Raw */
+            guest_phone_raw: string | null;
+            /** Id */
+            id: number;
+            /** Number */
+            number: number;
+            /** Party Size */
+            party_size: number;
+            /**
+             * Shift Ends At
+             * Format: date-time
+             */
+            shift_ends_at: string;
+            /**
+             * Shift Starts At
+             * Format: date-time
+             */
+            shift_starts_at: string;
+            /** Source */
+            source: string;
+            /**
+             * Starts At
+             * Format: date-time
+             */
+            starts_at: string;
+            /** Status */
+            status: string;
+            /** Table Ids */
+            table_ids: number[];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Venue Id */
+            venue_id: number;
+            /** Version */
+            version: number;
         };
         /**
          * BusinessDayResponse
@@ -985,6 +1281,242 @@ export interface operations {
             };
         };
     };
+    get_bookings_api_admin_v1_bookings_get: {
+        parameters: {
+            query?: {
+                business_date?: string | null;
+                status?: string | null;
+                source?: string | null;
+                table_id?: number | null;
+                phone?: string | null;
+                cursor?: number | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookingListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_booking_api_admin_v1_bookings_post: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BookingCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookingSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_unresolved_api_admin_v1_bookings_unresolved_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookingListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_booking_detail_api_admin_v1_bookings__booking_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booking_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookingSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_cancel_booking_api_admin_v1_bookings__booking_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booking_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BookingCancel"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookingSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_change_time_api_admin_v1_bookings__booking_id__change_time_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booking_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BookingChangeTime"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookingSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_booking_history_api_admin_v1_bookings__booking_id__history_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booking_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookingHistoryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_halls_api_admin_v1_halls_get: {
         parameters: {
             query?: {
@@ -1188,7 +1720,9 @@ export interface operations {
     };
     put_weekly_schedule_api_admin_v1_schedule_put: {
         parameters: {
-            query?: never;
+            query?: {
+                confirm?: boolean;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -1272,7 +1806,9 @@ export interface operations {
     };
     put_exception_api_admin_v1_schedule_exceptions__business_date__put: {
         parameters: {
-            query?: never;
+            query?: {
+                confirm?: boolean;
+            };
             header?: never;
             path: {
                 business_date: string;
@@ -1307,7 +1843,9 @@ export interface operations {
     };
     remove_exception_api_admin_v1_schedule_exceptions__business_date__delete: {
         parameters: {
-            query?: never;
+            query?: {
+                confirm?: boolean;
+            };
             header?: never;
             path: {
                 business_date: string;
