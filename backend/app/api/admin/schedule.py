@@ -25,7 +25,12 @@ from app.api.admin.schemas import (
     WeeklyScheduleResponse,
     WeeklyScheduleUpdate,
 )
-from app.api.errors import not_found, schedule_invalid, schedule_overlap
+from app.api.errors import (
+    not_found,
+    schedule_change_requires_confirmation,
+    schedule_invalid,
+    schedule_overlap,
+)
 from app.db.time import operation_now
 from app.domain.schedule import (
     InvalidScheduleError,
@@ -34,7 +39,7 @@ from app.domain.schedule import (
     describe_business_day,
 )
 from app.domain.timezone import load_timezone
-from app.services.errors import ScheduleConflictError
+from app.services.errors import ScheduleChangeRequiresConfirmationError, ScheduleConflictError
 from app.services.schedule import (
     WEEKDAYS,
     delete_exception,
@@ -57,6 +62,8 @@ def _translating_schedule_errors() -> Iterator[None]:
         raise schedule_invalid(str(exc)) from exc
     except ScheduleConflictError as exc:
         raise schedule_overlap(str(exc)) from exc
+    except ScheduleChangeRequiresConfirmationError as exc:
+        raise schedule_change_requires_confirmation(str(exc), exc.affected) from exc
 
 
 def _parse_time(value: str | None) -> time | None:
@@ -108,6 +115,7 @@ async def put_weekly_schedule(
     payload: WeeklyScheduleUpdate,
     context: AuthContextDep,
     session: SessionDep,
+    confirm: Annotated[bool, Query()] = False,
 ) -> WeeklyScheduleResponse:
     """Replace the weekly schedule, validating grid rules and adjacent overlaps.
 
@@ -120,7 +128,7 @@ async def put_weekly_schedule(
         raise schedule_invalid("duplicate weekday in weekly schedule")
     tz = load_timezone(context.venue.timezone)
     with _translating_schedule_errors():
-        await replace_weekly_schedule(session, context.venue_id, rules, tz)
+        await replace_weekly_schedule(session, context.venue_id, rules, tz, confirm=confirm)
     await session.commit()
     stored = await get_weekly_rules(session, context.venue_id)
     return _weekly_response(stored, context.venue.timezone)
@@ -156,6 +164,7 @@ async def put_exception(
     payload: ScheduleExceptionUpdate,
     context: AuthContextDep,
     session: SessionDep,
+    confirm: Annotated[bool, Query()] = False,
 ) -> ScheduleExceptionEntry:
     """Create or replace the exception for one business date (§5.3)."""
     rule = ScheduleRule(
@@ -165,7 +174,9 @@ async def put_exception(
     )
     tz = load_timezone(context.venue.timezone)
     with _translating_schedule_errors():
-        row = await upsert_exception(session, context.venue_id, business_date, rule, tz)
+        row = await upsert_exception(
+            session, context.venue_id, business_date, rule, tz, confirm=confirm
+        )
     await session.commit()
     return ScheduleExceptionEntry(
         date=row.date,
@@ -184,11 +195,14 @@ async def remove_exception(
     business_date: date,
     context: AuthContextDep,
     session: SessionDep,
+    confirm: Annotated[bool, Query()] = False,
 ) -> Response:
     """Delete the exception for one date, reverting to the weekly rule (§5.3)."""
     tz = load_timezone(context.venue.timezone)
     with _translating_schedule_errors():
-        removed = await delete_exception(session, context.venue_id, business_date, tz)
+        removed = await delete_exception(
+            session, context.venue_id, business_date, tz, confirm=confirm
+        )
     if not removed:
         raise not_found("SCHEDULE_EXCEPTION_NOT_FOUND", "no exception exists for that date")
     await session.commit()

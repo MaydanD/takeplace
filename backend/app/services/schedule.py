@@ -10,14 +10,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from datetime import date as date_type
-from datetime import tzinfo
+from datetime import datetime, tzinfo
 
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.locks import acquire_schedule_lock
-from app.db.models import ScheduleException, WeeklySchedule
+from app.db.models import Booking, ScheduleException, WeeklySchedule
 from app.db.time import operation_now
 from app.domain.schedule import (
     InvalidScheduleError,
@@ -29,9 +29,46 @@ from app.domain.schedule import (
     validate_rule,
     validate_weekday,
 )
-from app.services.errors import ScheduleConflictError
+from app.services.errors import ScheduleChangeRequiresConfirmationError, ScheduleConflictError
 
 WEEKDAYS: tuple[int, ...] = (0, 1, 2, 3, 4, 5, 6)
+
+
+async def _future_bookings_outside(
+    session: AsyncSession,
+    venue_id: int,
+    candidate: ScheduleTable,
+    tz: tzinfo,
+    now: datetime,
+) -> list[dict[str, object]]:
+    """Future NEW/WAITING bookings that no longer fit the candidate schedule (§5.5).
+
+    A schedule change never deletes, cancels or moves a booking; it only reports
+    the bookings whose snapshot interval falls outside the *new* shift, so the UI
+    can require explicit confirmation. New bookings are blocked from slipping in
+    concurrently because the caller already holds the exclusive schedule lock.
+    """
+    rows = await session.execute(
+        select(Booking).where(
+            Booking.venue_id == venue_id,
+            Booking.status.in_(("NEW", "WAITING")),
+            Booking.ends_at > now,
+        )
+    )
+    affected: list[dict[str, object]] = []
+    for booking in rows.scalars().all():
+        shift = candidate.shift_for(booking.business_date, tz)
+        if shift is None or booking.starts_at < shift.start or booking.ends_at > shift.end:
+            affected.append(
+                {
+                    "id": booking.id,
+                    "number": booking.number,
+                    "business_date": booking.business_date.isoformat(),
+                    "starts_at": booking.starts_at.isoformat(),
+                    "ends_at": booking.ends_at.isoformat(),
+                }
+            )
+    return affected
 
 
 def _rule_from_row(row: WeeklySchedule) -> ScheduleRule:
@@ -112,6 +149,8 @@ async def replace_weekly_schedule(
     venue_id: int,
     rules: Mapping[int, ScheduleRule],
     tz: tzinfo,
+    *,
+    confirm: bool = False,
 ) -> dict[int, ScheduleRule]:
     """Replace the whole weekly schedule after validating the grid and overlaps.
 
@@ -133,6 +172,13 @@ async def replace_weekly_schedule(
 
     await acquire_schedule_lock(session, venue_id)
     now = await operation_now(session)
+
+    # §5.5: report (do not move) future bookings stranded by the new schedule.
+    current = await load_schedule_table(session, venue_id)
+    candidate = ScheduleTable(weekly=normalized, exceptions=current.exceptions)
+    affected = await _future_bookings_outside(session, venue_id, candidate, tz, now)
+    if affected and not confirm:
+        raise ScheduleChangeRequiresConfirmationError(affected)
 
     existing = {
         row.weekday: row
@@ -172,6 +218,8 @@ async def upsert_exception(
     business_date: date_type,
     rule: ScheduleRule,
     tz: tzinfo,
+    *,
+    confirm: bool = False,
 ) -> ScheduleException:
     """Create or replace the exception for one business date (§5.3, §5.4).
 
@@ -180,6 +228,7 @@ async def upsert_exception(
     """
     validate_rule(rule)
     await acquire_schedule_lock(session, venue_id)
+    now = await operation_now(session)
 
     table = await load_schedule_table(session, venue_id)
     candidate = table.with_exception(business_date, rule)
@@ -187,7 +236,9 @@ async def upsert_exception(
     if conflicts:
         raise ScheduleConflictError(_conflict_message(conflicts))
 
-    now = await operation_now(session)
+    affected = await _future_bookings_outside(session, venue_id, candidate, tz, now)
+    if affected and not confirm:
+        raise ScheduleChangeRequiresConfirmationError(affected)
     result = await session.execute(
         select(ScheduleException).where(
             ScheduleException.venue_id == venue_id, ScheduleException.date == business_date
@@ -218,7 +269,12 @@ async def upsert_exception(
 
 
 async def delete_exception(
-    session: AsyncSession, venue_id: int, business_date: date_type, tz: tzinfo
+    session: AsyncSession,
+    venue_id: int,
+    business_date: date_type,
+    tz: tzinfo,
+    *,
+    confirm: bool = False,
 ) -> bool:
     """Delete the exception for one date, reverting to the weekly rule (§5.3).
 
@@ -235,6 +291,11 @@ async def delete_exception(
     conflicts = find_adjacent_overlaps(candidate, business_date, tz)
     if conflicts:
         raise ScheduleConflictError(_conflict_message(conflicts))
+
+    now = await operation_now(session)
+    affected = await _future_bookings_outside(session, venue_id, candidate, tz, now)
+    if affected and not confirm:
+        raise ScheduleChangeRequiresConfirmationError(affected)
 
     await session.execute(
         delete(ScheduleException).where(

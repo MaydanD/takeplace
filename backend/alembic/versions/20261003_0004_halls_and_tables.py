@@ -113,7 +113,9 @@ def upgrade() -> None:
         sa.CheckConstraint("capacity > 0", name=op.f("ck_tables_capacity_positive")),
         sa.CheckConstraint("width > 0 AND height > 0", name=op.f("ck_tables_size_positive")),
         sa.CheckConstraint("x >= 0 AND y >= 0", name=op.f("ck_tables_position_non_negative")),
-        sa.CheckConstraint("rotation >= 0 AND rotation <= 360", name=op.f("ck_tables_rotation_range")),
+        sa.CheckConstraint(
+            "rotation >= 0 AND rotation <= 360", name=op.f("ck_tables_rotation_range")
+        ),
         sa.CheckConstraint(_SHAPE_SQL, name=op.f("ck_tables_shape_allowed")),
         sa.ForeignKeyConstraint(
             ["hall_id", "venue_id"],

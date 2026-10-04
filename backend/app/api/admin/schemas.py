@@ -6,11 +6,13 @@ Transport types are generated from these models for the frontend.
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import AwareDatetime, BaseModel, Field
 
-from app.db.models import AdminAccount, Hall, Table, Venue
+from app.db.models import AdminAccount, BookingEvent, Hall, Table, Venue
 from app.domain.layout import StaticElement
+from app.services.bookings import BookingView
 
 # Local schedule times are wall-clock ``HH:MM`` values in the venue timezone, on
 # the 5-minute grid (§5.2). They are never ambiguous instants: the business date
@@ -255,3 +257,140 @@ class TableUpdate(BaseModel):
     """Operational table toggle. Geometry is owned by layout-save, not here (§35)."""
 
     is_bookable: bool
+
+
+# --- bookings (Stage 5) -----------------------------------------------------
+
+
+def _tables_from_occupancies(table_ids: list[int]) -> list[int]:
+    return sorted(table_ids)
+
+
+class BookingCreate(BaseModel):
+    """Admin manual create (§19). ``ONLINE`` is reserved for the public flow (§8).
+
+    Times are absolute ISO-8601 instants; the backend derives the business date
+    and the shift snapshot from the canonical schedule resolver.
+    """
+
+    starts_at: AwareDatetime
+    ends_at: AwareDatetime
+    table_ids: list[int] = Field(min_length=1, max_length=50)
+    party_size: int = Field(ge=1, le=1000)
+    source: Literal["PHONE", "VK", "WALK_IN", "OTHER"]
+    guest_name: str = Field(min_length=1, max_length=100)
+    guest_phone_raw: str | None = Field(default=None, max_length=50)
+    guest_comment: str | None = Field(default=None, max_length=1000)
+
+
+class BookingCancel(BaseModel):
+    """Cancel an unopened booking (§9, §11)."""
+
+    expected_version: int = Field(ge=1)
+    reason: Literal[
+        "GUEST_CANCELED",
+        "NO_SHOW",
+        "DUPLICATE",
+        "UNREACHABLE",
+        "RESCHEDULED",
+        "GUEST_LATE",
+        "CREATION_ERROR",
+        "TERMS_REFUSED",
+        "INVALID_DATA",
+        "MOVED_ELSEWHERE",
+        "NO_TABLES",
+        "VENUE_CLOSED",
+        "ENTRY_REFUSED",
+        "OTHER",
+    ]
+    note: str | None = Field(default=None, max_length=500)
+
+
+class BookingChangeTime(BaseModel):
+    """Move a NEW/WAITING booking to a new interval (§5.5, §32.3)."""
+
+    expected_version: int = Field(ge=1)
+    starts_at: AwareDatetime
+    ends_at: AwareDatetime
+
+
+class BookingSummary(BaseModel):
+    """Booking representation for the admin book (no idempotency keys/HMACs)."""
+
+    id: int
+    number: int
+    venue_id: int
+    business_date: date
+    status: str
+    source: str
+    party_size: int
+    guest_name: str | None
+    guest_phone_raw: str | None
+    guest_phone_normalized: str | None
+    guest_comment: str | None
+    shift_starts_at: datetime
+    shift_ends_at: datetime
+    starts_at: datetime
+    ends_at: datetime
+    table_ids: list[int]
+    version: int
+    canceled_at: datetime | None
+    cancellation_reason: str | None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_view(cls, view: BookingView) -> BookingSummary:
+        booking = view.booking
+        return cls(
+            id=booking.id,
+            number=booking.number,
+            venue_id=booking.venue_id,
+            business_date=booking.business_date,
+            status=booking.status,
+            source=booking.source,
+            party_size=booking.party_size,
+            guest_name=booking.guest_name,
+            guest_phone_raw=booking.guest_phone_raw,
+            guest_phone_normalized=booking.guest_phone_normalized,
+            guest_comment=booking.guest_comment,
+            shift_starts_at=booking.shift_starts_at,
+            shift_ends_at=booking.shift_ends_at,
+            starts_at=booking.starts_at,
+            ends_at=booking.ends_at,
+            table_ids=_tables_from_occupancies(view.table_ids),
+            version=booking.version,
+            canceled_at=booking.canceled_at,
+            cancellation_reason=booking.cancellation_reason,
+            created_at=booking.created_at,
+            updated_at=booking.updated_at,
+        )
+
+
+class BookingListResponse(BaseModel):
+    items: list[BookingSummary]
+    next_cursor: int | None = None
+
+
+class BookingEventSummary(BaseModel):
+    """One append-only history row; payload holds no PII (§6.10)."""
+
+    id: int
+    event_type: str
+    actor_type: str
+    payload: dict[str, object]
+    created_at: datetime
+
+    @classmethod
+    def from_model(cls, event: BookingEvent) -> BookingEventSummary:
+        return cls(
+            id=event.id,
+            event_type=event.event_type,
+            actor_type=event.actor_type,
+            payload=event.payload,
+            created_at=event.created_at,
+        )
+
+
+class BookingHistoryResponse(BaseModel):
+    events: list[BookingEventSummary]

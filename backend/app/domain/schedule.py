@@ -182,6 +182,18 @@ def _shift_containing(
     return None
 
 
+def shift_containing(
+    table: ScheduleTable, now: datetime, tz: tzinfo
+) -> tuple[date_type, Shift] | None:
+    """Return the business date and shift whose ``[start, end)`` contains ``now``.
+
+    Public wrapper over the canonical overnight-aware lookup used by
+    ``current_business_date``: a booking created for an instant derives its
+    ``business_date`` and shift snapshot from exactly this resolution.
+    """
+    return _shift_containing(table, now, tz)
+
+
 def current_business_date(now: datetime, table: ScheduleTable, tz: tzinfo) -> date_type:
     """Return the business date ``now`` belongs to (PROJECT-SPEC §5.6).
 

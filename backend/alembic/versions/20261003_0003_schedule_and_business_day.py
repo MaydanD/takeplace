@@ -82,7 +82,9 @@ def upgrade() -> None:
             ondelete="CASCADE",
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_weekly_schedules")),
-        sa.UniqueConstraint("venue_id", "weekday", name=op.f("uq_weekly_schedules_venue_id_weekday")),
+        sa.UniqueConstraint(
+            "venue_id", "weekday", name=op.f("uq_weekly_schedules_venue_id_weekday")
+        ),
     )
 
     op.create_table(

@@ -13,13 +13,20 @@ from fastapi.responses import JSONResponse
 
 
 class ApiError(Exception):
-    """An expected error with a stable machine-readable code."""
+    """An expected error with a stable machine-readable code.
 
-    def __init__(self, status_code: int, code: str, detail: str) -> None:
+    ``extra`` carries optional, tenant-scoped structured context (for example
+    the affected bookings of a blocked schedule/archive/capacity change, §36).
+    """
+
+    def __init__(
+        self, status_code: int, code: str, detail: str, extra: dict[str, object] | None = None
+    ) -> None:
         super().__init__(detail)
         self.status_code = status_code
         self.code = code
         self.detail = detail
+        self.extra = extra or {}
 
 
 async def api_error_handler(_request: Request, exc: Exception) -> JSONResponse:
@@ -30,11 +37,10 @@ async def api_error_handler(_request: Request, exc: Exception) -> JSONResponse:
     retry_after = getattr(error, "retry_after_seconds", None)
     if retry_after is not None:
         headers["Retry-After"] = str(retry_after)
-    return JSONResponse(
-        status_code=error.status_code,
-        content={"code": error.code, "detail": error.detail},
-        headers=headers,
-    )
+    content: dict[str, object] = {"code": error.code, "detail": error.detail}
+    if error.extra:
+        content.update(error.extra)
+    return JSONResponse(status_code=error.status_code, content=content, headers=headers)
 
 
 def unauthenticated() -> ApiError:
@@ -84,3 +90,59 @@ def table_archive_blocked(detail: str) -> ApiError:
 def table_number_taken(detail: str) -> ApiError:
     """A non-archived table already uses this number in the hall (§6.5)."""
     return ApiError(409, "TABLE_NUMBER_TAKEN", detail)
+
+
+def booking_rule_violation(detail: str) -> ApiError:
+    """A booking payload violates the interval/grid/shift/horizon rules (§18)."""
+    return ApiError(422, "BOOKING_RULE_VIOLATION", detail)
+
+
+def booking_conflict(detail: str, conflicting_booking_ids: list[int]) -> ApiError:
+    """Another active occupancy overlaps the requested interval (§12, §36)."""
+    return ApiError(
+        409, "BOOKING_CONFLICT", detail, {"conflicting_booking_ids": conflicting_booking_ids}
+    )
+
+
+def booking_stale(detail: str) -> ApiError:
+    """``expected_version`` does not match the stored booking version (§33)."""
+    return ApiError(409, "BOOKING_STALE", detail)
+
+
+def booking_invalid_state(detail: str) -> ApiError:
+    """The booking is not in a state that allows the requested operation (§9)."""
+    return ApiError(409, "BOOKING_INVALID_STATE", detail)
+
+
+def table_not_bookable(detail: str) -> ApiError:
+    """A selected table is archived or switched off (§29.2)."""
+    return ApiError(409, "TABLE_NOT_BOOKABLE", detail)
+
+
+def hall_not_bookable(detail: str) -> ApiError:
+    """A selected table's hall is switched off (§29.1)."""
+    return ApiError(409, "HALL_NOT_BOOKABLE", detail)
+
+
+def idempotency_key_reused(detail: str) -> ApiError:
+    """The same Idempotency-Key was sent with a different payload (§18.2)."""
+    return ApiError(409, "IDEMPOTENCY_KEY_REUSED", detail)
+
+
+def schedule_change_requires_confirmation(
+    detail: str, affected: list[dict[str, object]]
+) -> ApiError:
+    """A schedule change would strand future bookings; explicit confirmation (§5.5)."""
+    return ApiError(
+        409, "SCHEDULE_CHANGE_REQUIRES_CONFIRMATION", detail, {"affected_bookings": affected}
+    )
+
+
+def capacity_change_blocked(detail: str, affected: list[dict[str, object]]) -> ApiError:
+    """A capacity decrease would break an existing future booking (§29.4)."""
+    return ApiError(409, "CAPACITY_CHANGE_BLOCKED", detail, {"affected_bookings": affected})
+
+
+def service_unavailable(detail: str) -> ApiError:
+    """A bounded retry budget was exhausted (lock timeout, §32.5)."""
+    return ApiError(503, "SERVICE_UNAVAILABLE", detail)

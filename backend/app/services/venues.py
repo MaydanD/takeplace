@@ -13,7 +13,7 @@ from sqlalchemy import CursorResult, delete, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import AdminAccount, AdminSession, Venue
+from app.db.models import AdminAccount, AdminSession, Venue, VenueBookingCounter
 from app.db.time import operation_now
 from app.domain.timezone import (
     UnknownTimezoneError,
@@ -95,6 +95,10 @@ async def create_venue(
     # Onboarding also creates the first hall so the canvas is immediately usable
     # (PROJECT-SPEC §53).
     await create_default_hall(session, venue.id)
+    # The booking counter is seeded empty; the first booking increments it to 1
+    # (§6.7, §53, Stage 5).
+    session.add(VenueBookingCounter(venue_id=venue.id, last_number=0))
+    await session.flush()
 
     return venue, admin
 

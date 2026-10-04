@@ -13,11 +13,11 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.locks import acquire_layout_lock
-from app.db.models import Hall, Table
+from app.db.models import Booking, Hall, Table, TableOccupancy
 from app.db.time import operation_now
 from app.domain.layout import (
     DEFAULT_CANVAS_HEIGHT,
@@ -28,8 +28,10 @@ from app.domain.layout import (
     TableSpec,
 )
 from app.services.errors import (
+    CapacityChangeBlockedError,
     HallArchiveBlockedError,
     HallNotFoundError,
+    TableArchiveBlockedError,
     TableNotFoundError,
 )
 
@@ -196,20 +198,117 @@ async def set_table_bookable(
 
 
 async def archive_table(session: AsyncSession, venue_id: int, table_id: int) -> Table:
-    """Archive a table.
+    """Archive a table, occupancy-aware (§29.3).
 
-    §29.3 also forbids archiving while a live row or a future active BOOKING
-    occupancy exists. Those tables arrive in Stage 5; until then archiving is
-    only the state transition, and the guard is added with the occupancies.
+    Forbidden while the table has a live row of the current business day (§29.3;
+    live rows are a later stage) or a future active BOOKING occupancy. Archiving
+    takes the table ``FOR UPDATE``, which serialises with a booking create's
+    ``FOR SHARE``: the "no bookings -> archive" window cannot be raced (§54.9).
+    Active BLOCK rows are deactivated rather than deleted.
     """
     table = await get_table(session, venue_id, table_id, for_update=True)
     if table.archived_at is not None:
         return table
     now = await operation_now(session)
+    future_bookings = (
+        await session.execute(
+            select(func.count())
+            .select_from(TableOccupancy)
+            .where(
+                TableOccupancy.venue_id == venue_id,
+                TableOccupancy.table_id == table_id,
+                TableOccupancy.kind == "BOOKING",
+                TableOccupancy.is_active.is_(True),
+                TableOccupancy.ends_at > now,
+            )
+        )
+    ).scalar_one()
+    if int(future_bookings) > 0:
+        raise TableArchiveBlockedError(
+            f"it still has {int(future_bookings)} future active booking occupancy(ies)"
+        )
+    await session.execute(
+        update(TableOccupancy)
+        .where(
+            TableOccupancy.venue_id == venue_id,
+            TableOccupancy.table_id == table_id,
+            TableOccupancy.kind == "BLOCK",
+            TableOccupancy.is_active.is_(True),
+        )
+        .values(is_active=False, updated_at=now)
+    )
     table.archived_at = now
     table.updated_at = now
     await session.flush()
     return table
+
+
+async def _capacity_breakers(
+    session: AsyncSession, venue_id: int, now: datetime
+) -> list[dict[str, object]]:
+    """Return future NEW/WAITING bookings a capacity change would strand (§29.4).
+
+    A booking is stranded when the seats of its currently assigned tables (using
+    the capacities just written in this transaction, an archived table counting
+    as 0) fall below its party size. The caller holds the table row locks from
+    its UPDATE, so a concurrent booking create is serialised behind this check.
+    """
+    rows = await session.execute(
+        select(TableOccupancy.booking_id, TableOccupancy.table_id)
+        .join(Booking, Booking.id == TableOccupancy.booking_id)
+        .where(
+            TableOccupancy.venue_id == venue_id,
+            TableOccupancy.kind == "BOOKING",
+            TableOccupancy.is_active.is_(True),
+            TableOccupancy.ends_at > now,
+            Booking.status.in_(("NEW", "WAITING")),
+        )
+    )
+    by_booking: dict[int, set[int]] = {}
+    for booking_id, table_id in rows.all():
+        by_booking.setdefault(int(booking_id), set()).add(int(table_id))
+    if not by_booking:
+        return []
+
+    capacities = {
+        int(table_id): (int(capacity) if archived_at is None else 0)
+        for table_id, capacity, archived_at in (
+            await session.execute(
+                select(Table.id, Table.capacity, Table.archived_at).where(
+                    Table.venue_id == venue_id
+                )
+            )
+        ).all()
+    }
+    bookings = {
+        booking.id: booking
+        for booking in (
+            await session.execute(
+                select(Booking).where(
+                    Booking.id.in_(list(by_booking)), Booking.venue_id == venue_id
+                )
+            )
+        )
+        .scalars()
+        .all()
+    }
+    affected: list[dict[str, object]] = []
+    for booking_id, table_ids in sorted(by_booking.items()):
+        booking = bookings.get(booking_id)
+        if booking is None:
+            continue
+        total = sum(capacities.get(table_id, 0) for table_id in table_ids)
+        if booking.party_size > total:
+            affected.append(
+                {
+                    "id": booking.id,
+                    "number": booking.number,
+                    "business_date": booking.business_date.isoformat(),
+                    "starts_at": booking.starts_at.isoformat(),
+                    "ends_at": booking.ends_at.isoformat(),
+                }
+            )
+    return affected
 
 
 @dataclass(slots=True)
@@ -220,6 +319,9 @@ class ImportResult:
     halls_updated: int = 0
     tables_created: int = 0
     tables_updated: int = 0
+    # Internal: whether any existing table capacity changed, which triggers the
+    # §29.4 future-booking capacity guard. Never serialised.
+    capacity_changed: bool = False
 
     def to_dict(self) -> dict[str, int]:
         return {
@@ -273,6 +375,8 @@ async def _apply_table(
         return True
     if not _table_differs(existing, values):
         return False
+    if existing.capacity != values["capacity"]:
+        result.capacity_changed = True
     for field, value in values.items():
         setattr(existing, field, value)
     existing.updated_at = now
@@ -381,4 +485,11 @@ async def import_layout(session: AsyncSession, venue_id: int, layout: LayoutImpo
             now=now,
             result=result,
         )
+    if result.capacity_changed:
+        # §29.4: a capacity decrease must not break an existing future booking.
+        # The capacity UPDATEs already hold the table row locks, so a booking
+        # create either committed before this check or waits for our commit.
+        affected = await _capacity_breakers(session, venue_id, now)
+        if affected:
+            raise CapacityChangeBlockedError(affected)
     return result
