@@ -9,7 +9,8 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
-from app.db.models import AdminAccount, Venue
+from app.db.models import AdminAccount, Hall, Table, Venue
+from app.domain.layout import StaticElement
 
 # Local schedule times are wall-clock ``HH:MM`` values in the venue timezone, on
 # the 5-minute grid (§5.2). They are never ambiguous instants: the business date
@@ -132,3 +133,125 @@ class BusinessDayResponse(BaseModel):
     current_business_date: date
     shift_start: datetime | None
     shift_end: datetime | None
+
+
+class TableSummary(BaseModel):
+    """Table geometry and state (PROJECT-SPEC §6.5)."""
+
+    id: int
+    hall_id: int
+    hall_name: str | None = None
+    number: str
+    capacity: int
+    is_bookable: bool
+    archived_at: datetime | None
+    x: float
+    y: float
+    width: float
+    height: float
+    rotation: float
+    shape: str
+    z_index: int
+
+    @classmethod
+    def from_model(cls, table: Table, *, hall_name: str | None = None) -> TableSummary:
+        return cls(
+            id=table.id,
+            hall_id=table.hall_id,
+            hall_name=hall_name,
+            number=table.number,
+            capacity=table.capacity,
+            is_bookable=table.is_bookable,
+            archived_at=table.archived_at,
+            x=float(table.x),
+            y=float(table.y),
+            width=float(table.width),
+            height=float(table.height),
+            rotation=float(table.rotation),
+            shape=table.shape,
+            z_index=table.z_index,
+        )
+
+
+class HallSummary(BaseModel):
+    """Hall metadata (canvas size, revision, archive state)."""
+
+    id: int
+    name: str
+    is_bookable: bool
+    canvas_width: int
+    canvas_height: int
+    layout_revision: int
+    archived_at: datetime | None
+    table_count: int
+
+    @classmethod
+    def from_model(cls, hall: Hall, *, table_count: int) -> HallSummary:
+        return cls(
+            id=hall.id,
+            name=hall.name,
+            is_bookable=hall.is_bookable,
+            canvas_width=hall.canvas_width,
+            canvas_height=hall.canvas_height,
+            layout_revision=hall.layout_revision,
+            archived_at=hall.archived_at,
+            table_count=table_count,
+        )
+
+
+class HallDetail(BaseModel):
+    """A hall with its tables and static elements (read-only canvas source)."""
+
+    id: int
+    name: str
+    is_bookable: bool
+    canvas_width: int
+    canvas_height: int
+    layout_revision: int
+    archived_at: datetime | None
+    static_elements: list[StaticElement]
+    tables: list[TableSummary]
+
+    @classmethod
+    def from_model(cls, hall: Hall, tables: list[Table]) -> HallDetail:
+        return cls(
+            id=hall.id,
+            name=hall.name,
+            is_bookable=hall.is_bookable,
+            canvas_width=hall.canvas_width,
+            canvas_height=hall.canvas_height,
+            layout_revision=hall.layout_revision,
+            archived_at=hall.archived_at,
+            static_elements=hall.static_elements,
+            tables=[TableSummary.from_model(t) for t in tables],
+        )
+
+
+class HallsResponse(BaseModel):
+    halls: list[HallSummary]
+
+
+class TablesResponse(BaseModel):
+    tables: list[TableSummary]
+
+
+class HallCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    canvas_width: int = Field(default=1200, ge=1, le=1_000_000)
+    canvas_height: int = Field(default=800, ge=1, le=1_000_000)
+    is_bookable: bool = True
+
+
+class HallUpdate(BaseModel):
+    """Editable hall fields. ``is_bookable`` does not bump the layout revision."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    is_bookable: bool | None = None
+    canvas_width: int | None = Field(default=None, ge=1, le=1_000_000)
+    canvas_height: int | None = Field(default=None, ge=1, le=1_000_000)
+
+
+class TableUpdate(BaseModel):
+    """Operational table toggle. Geometry is owned by layout-save, not here (§35)."""
+
+    is_bookable: bool

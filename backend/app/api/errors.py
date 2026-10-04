@@ -64,3 +64,23 @@ def schedule_overlap(detail: str) -> ApiError:
 
 def not_found(code: str, detail: str) -> ApiError:
     return ApiError(404, code, detail)
+
+
+def layout_invalid(detail: str) -> ApiError:
+    """A hall/table/static-element payload violates the geometry contract."""
+    return ApiError(422, "LAYOUT_INVALID", detail)
+
+
+def hall_archive_blocked(detail: str) -> ApiError:
+    """A hall still has non-archived tables (§29.5)."""
+    return ApiError(409, "HALL_ARCHIVE_BLOCKED", detail)
+
+
+def table_archive_blocked(detail: str) -> ApiError:
+    """A table still has live/future occupancy (§29.3)."""
+    return ApiError(409, "TABLE_ARCHIVE_BLOCKED", detail)
+
+
+def table_number_taken(detail: str) -> ApiError:
+    """A non-archived table already uses this number in the hall (§6.5)."""
+    return ApiError(409, "TABLE_NUMBER_TAKEN", detail)

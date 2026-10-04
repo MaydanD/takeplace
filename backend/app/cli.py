@@ -11,26 +11,29 @@ Commands
 ``suspend-venue``  disable a venue and revoke its sessions.
 ``enable-venue``   re-enable a previously suspended venue.
 ``list-venues``    show venues and their status.
+``import-layout``  upsert a hall/table layout from a validated JSON file.
 
 By default ``create-venue`` and ``reset-password`` generate a cryptographically
 random password and print it exactly once; ``--password`` is the explicit
 opt-in to a manual value. Secrets are never echoed in error output.
 
 Scope note: §53 lists the booking counter, base schedule rows and first hall as
-part of onboarding. ``create-venue`` already seeds the seven closed weekly
-schedule rows (Stage 3). The booking counter belongs to Stage 5 and the first
-hall to Stage 4, so they are created by their owning stages rather than invented
-here ahead of the spec.
+part of onboarding. ``create-venue`` now seeds the seven closed weekly schedule
+rows and a default hall. The booking counter belongs to Stage 5 and is created
+there rather than invented here ahead of the spec.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import sys
 from collections.abc import Sequence
+from pathlib import Path
 
 from app.db.session import dispose_engine, init_engine, session_scope
+from app.domain.layout import LayoutImport, LayoutValidationError, validate_layout_import
 from app.domain.timezone import (
     UnknownTimezoneError,
     UnsupportedTimezoneError,
@@ -40,6 +43,7 @@ from app.domain.venues import InvalidSlugError, validate_slug
 from app.security.passwords import get_password_hasher, init_password_hasher
 from app.security.tokens import generate_password
 from app.services.errors import ServiceError, VenueNotFoundError
+from app.services.halls import import_layout
 from app.services.venues import (
     create_venue,
     get_admin_for_venue,
@@ -99,6 +103,18 @@ def _build_parser() -> argparse.ArgumentParser:
         command.add_argument("venue", help="venue id or slug")
 
     sub.add_parser("list-venues", help="list venues and their status")
+
+    import_layout_cmd = sub.add_parser(
+        "import-layout",
+        help="upsert halls/tables/static elements from a validated JSON layout file",
+    )
+    import_layout_cmd.add_argument("venue", help="venue id or slug")
+    import_layout_cmd.add_argument("--file", required=True, help="path to the layout JSON file")
+    import_layout_cmd.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="validate the file without writing anything",
+    )
 
     return parser
 
@@ -177,6 +193,40 @@ async def _cmd_set_active(args: argparse.Namespace, *, active: bool) -> int:
     return EXIT_OK
 
 
+def _load_layout_file(path: str) -> LayoutImport:
+    """Read and validate a layout JSON file before any database work."""
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise LayoutValidationError(f"layout file not found: {path}") from exc
+    except json.JSONDecodeError as exc:
+        raise LayoutValidationError(f"layout file is not valid JSON: {exc}") from exc
+    return validate_layout_import(raw)
+
+
+async def _cmd_import_layout(args: argparse.Namespace) -> int:
+    layout = _load_layout_file(args.file)
+    halls = len(layout.halls)
+    tables = sum(len(hall.tables) for hall in layout.halls)
+    elements = sum(len(hall.static_elements) for hall in layout.halls)
+
+    if args.dry_run:
+        print(f"layout is valid: {halls} hall(s), {tables} table(s), {elements} static element(s)")
+        return EXIT_OK
+
+    async with session_scope() as session:
+        venue = await get_venue(session, args.venue)
+        result = await import_layout(session, venue.id, layout)
+        slug = venue.slug
+
+    print(f"imported layout into venue {slug!r}")
+    print(
+        f"  halls: created {result.halls_created}, updated {result.halls_updated}"
+        f"  |  tables: created {result.tables_created}, updated {result.tables_updated}"
+    )
+    return EXIT_OK
+
+
 async def _cmd_list_venues(_args: argparse.Namespace) -> int:
     async with session_scope() as session:
         venues = await list_venues(session)
@@ -211,6 +261,8 @@ async def _dispatch(args: argparse.Namespace) -> int:
             return await _cmd_set_active(args, active=True)
         if args.command == "list-venues":
             return await _cmd_list_venues(args)
+        if args.command == "import-layout":
+            return await _cmd_import_layout(args)
         raise AssertionError(f"unhandled command: {args.command}")
     finally:
         await dispose_engine()
@@ -218,6 +270,9 @@ async def _dispatch(args: argparse.Namespace) -> int:
 
 def _report_error(exc: Exception) -> int:
     """Print an operator-facing message without leaking any secret."""
+    if isinstance(exc, LayoutValidationError):
+        print(f"error: invalid layout: {exc.message}", file=sys.stderr)
+        return EXIT_USAGE
     if isinstance(exc, InvalidSlugError):
         print(f"error: {exc}", file=sys.stderr)
         return EXIT_USAGE

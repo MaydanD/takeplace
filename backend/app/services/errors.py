@@ -45,3 +45,45 @@ class ScheduleConflictError(ServiceError):
 
     def __init__(self, message: str) -> None:
         super().__init__(message)
+
+
+class HallNotFoundError(ServiceError):
+    """A hall is not visible to this tenant (wrong venue -> 404, §7.1)."""
+
+    def __init__(self, hall_id: int) -> None:
+        super().__init__(f"hall {hall_id} was not found")
+        self.hall_id = hall_id
+
+
+class TableNotFoundError(ServiceError):
+    """A table is not visible to this tenant (wrong venue -> 404, §7.1)."""
+
+    def __init__(self, table_id: int) -> None:
+        super().__init__(f"table {table_id} was not found")
+        self.table_id = table_id
+
+
+class HallArchiveBlockedError(ServiceError):
+    """A hall cannot be archived while it still has non-archived tables (§29.5)."""
+
+    def __init__(self, active_tables: int) -> None:
+        super().__init__(
+            f"hall cannot be archived while it has {active_tables} non-archived table(s)"
+        )
+        self.active_tables = active_tables
+
+
+class TableArchiveBlockedError(ServiceError):
+    """A table cannot be archived while it has live/future occupancy (§29.3)."""
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(f"table cannot be archived: {reason}")
+        self.reason = reason
+
+
+class TableNumberTakenError(ServiceError):
+    """A non-archived table with this number already exists in the hall (§6.5)."""
+
+    def __init__(self, number: str) -> None:
+        super().__init__(f"table number {number!r} is already used in this hall")
+        self.number = number

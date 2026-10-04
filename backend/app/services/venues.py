@@ -28,6 +28,7 @@ from app.services.errors import (
     UnsupportedTimezoneServiceError,
     VenueNotFoundError,
 )
+from app.services.halls import create_default_hall
 from app.services.schedule import seed_default_schedule
 
 
@@ -91,6 +92,9 @@ async def create_venue(
     # A new venue starts fully closed and is opened day by day in the admin UI
     # (PROJECT-SPEC §5.2, §53).
     await seed_default_schedule(session, venue.id)
+    # Onboarding also creates the first hall so the canvas is immediately usable
+    # (PROJECT-SPEC §53).
+    await create_default_hall(session, venue.id)
 
     return venue, admin
 
