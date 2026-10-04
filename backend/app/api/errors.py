@@ -146,3 +146,32 @@ def capacity_change_blocked(detail: str, affected: list[dict[str, object]]) -> A
 def service_unavailable(detail: str) -> ApiError:
     """A bounded retry budget was exhausted (lock timeout, §32.5)."""
     return ApiError(503, "SERVICE_UNAVAILABLE", detail)
+
+
+def online_booking_disabled() -> ApiError:
+    """The venue kill switch is off (§32.2, §54.11a)."""
+    return ApiError(409, "ONLINE_BOOKING_DISABLED", "online booking is disabled for this venue")
+
+
+def public_rate_limited(retry_after_seconds: int) -> ApiError:
+    """Public create hit the soft create rate limit (§40)."""
+    error = ApiError(429, "RATE_LIMITED", "too many public booking requests")
+    error.retry_after_seconds = retry_after_seconds  # type: ignore[attr-defined]
+    return error
+
+
+def public_availability_rate_limited(retry_after_seconds: int) -> ApiError:
+    """Public availability read hit the soft read rate limit (§40)."""
+    error = ApiError(429, "RATE_LIMITED", "too many public availability requests")
+    error.retry_after_seconds = retry_after_seconds  # type: ignore[attr-defined]
+    return error
+
+
+def captcha_required() -> ApiError:
+    """CAPTCHA is enabled and the request did not pass it (§50)."""
+    return ApiError(400, "CAPTCHA_REQUIRED", "captcha verification is required")
+
+
+def honeypot_filled() -> ApiError:
+    """The hidden honeypot field was filled (§40, §50)."""
+    return ApiError(400, "HONEYPOT_FILLED", "invalid submission")

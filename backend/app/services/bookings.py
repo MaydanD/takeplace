@@ -32,7 +32,7 @@ import json
 import uuid
 from dataclasses import dataclass
 from datetime import date as date_type
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select, text
@@ -72,6 +72,7 @@ from app.services.errors import (
     BookingStaleError,
     HallNotBookableError,
     IdempotencyKeyReusedError,
+    OnlineBookingDisabledError,
     ServiceUnavailableError,
     TableNotBookableError,
     TableNotFoundError,
@@ -98,6 +99,25 @@ class AdminBookingInput:
     guest_name: str
     guest_phone_raw: str | None = None
     guest_comment: str | None = None
+
+
+@dataclass(slots=True)
+class PublicBookingInput:
+    """A validated public ONLINE create request (transport-agnostic, §18, §42).
+
+    ``source`` is fixed to ``ONLINE``: the public endpoint may not create any
+    other source. Privacy consent is mandatory and captured here so the booking
+    core can persist ``privacy_policy_version``/``privacy_accepted_at``.
+    """
+
+    starts_at: datetime
+    ends_at: datetime
+    table_id: int
+    party_size: int
+    guest_name: str
+    guest_phone_raw: str
+    guest_comment: str | None = None
+    privacy_policy_version: str = "1.0.0"
 
 
 @dataclass(slots=True)
@@ -143,6 +163,35 @@ def canonical_admin_payload(*, venue_id: int, data: AdminBookingInput) -> str:
 def admin_request_hmac(hmac_key: str, *, venue_id: int, data: AdminBookingInput) -> str:
     """HMAC-SHA-256 of the canonical admin payload under ``IDEMPOTENCY_HMAC_KEY``."""
     return hmac_sha256_hex(hmac_key, canonical_admin_payload(venue_id=venue_id, data=data))
+
+
+def canonical_public_payload(
+    *,
+    venue_id: int,
+    data: PublicBookingInput,
+) -> str:
+    """Deterministic JSON digest input for the public idempotency HMAC (§18.2, §42.1).
+
+    Field order is fixed by ``sort_keys``; the phone is the raw validated string
+    the server received, so a retry of the same user action hashes identically.
+    """
+    payload = {
+        "venue_id": venue_id,
+        "starts_at": data.starts_at.isoformat(),
+        "ends_at": data.ends_at.isoformat(),
+        "table_id": data.table_id,
+        "party_size": data.party_size,
+        "guest_name": data.guest_name,
+        "guest_phone_raw": data.guest_phone_raw,
+        "guest_comment": data.guest_comment,
+        "privacy_policy_version": data.privacy_policy_version,
+    }
+    return json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+
+
+def public_request_hmac(hmac_key: str, *, venue_id: int, data: PublicBookingInput) -> str:
+    """HMAC-SHA-256 of the canonical public payload under ``IDEMPOTENCY_HMAC_KEY``."""
+    return hmac_sha256_hex(hmac_key, canonical_public_payload(venue_id=venue_id, data=data))
 
 
 def parse_idempotency_key(raw: str) -> uuid.UUID:
@@ -206,6 +255,19 @@ async def find_by_admin_key(session: AsyncSession, venue_id: int, key: uuid.UUID
         await session.execute(
             select(Booking).where(
                 Booking.venue_id == venue_id, Booking.admin_idempotency_key == key
+            )
+        )
+    ).scalar_one_or_none()
+
+
+async def find_by_public_key(
+    session: AsyncSession, venue_id: int, key: uuid.UUID
+) -> Booking | None:
+    """Look up a booking by its public idempotency key within one venue (§18.2)."""
+    return (
+        await session.execute(
+            select(Booking).where(
+                Booking.venue_id == venue_id, Booking.public_idempotency_key == key
             )
         )
     ).scalar_one_or_none()
@@ -612,6 +674,236 @@ async def create_admin_booking(
                     existing = await find_by_admin_key(session, venue_id, key)
                 if existing is not None:
                     return await _replay(session, venue_id, existing, request_hmac), False
+                raise BookingConflictError([]) from exc
+            raise
+        except DBAPIError as exc:
+            state = _sqlstate(exc)
+            if state in _RETRYABLE_SQLSTATES and attempt + 1 < MAX_ATTEMPTS:
+                continue
+            if state == _LOCK_TIMEOUT_SQLSTATE:
+                raise ServiceUnavailableError() from exc
+            raise
+    raise ServiceUnavailableError()  # pragma: no cover - the loop always returns or raises
+
+
+# --- public create (ONLINE) -------------------------------------------------
+
+
+def _assert_public_replay(booking: Booking, request_hmac: str) -> None:
+    """Validate a replayed public idempotent request against the stored HMAC (§18.2)."""
+    if booking.public_request_hmac != request_hmac:
+        raise IdempotencyKeyReusedError()
+
+
+async def _create_public_once(
+    session: AsyncSession,
+    *,
+    venue_id: int,
+    data: PublicBookingInput,
+    key: uuid.UUID,
+    request_hmac: str,
+    request_ip_hmac: str,
+    ip_hmac_ttl_days: int,
+) -> Booking:
+    """Run the public ONLINE create flow inside the caller's transaction (§32.2).
+
+    Shares the canonical lock order, schedule resolution, capacity/conflict
+    validation and occupancy/event helpers with the admin path. The public
+    differences are: ``source='ONLINE'``, public idempotency columns, the
+    ``request_ip_hmac`` fingerprint, privacy consent, a final plain
+    ``online_booking_enabled`` gate after the locks (§32.2) and a ``PUBLIC``
+    event actor.
+    """
+    venue = await session.get(Venue, venue_id)
+    if venue is None:
+        raise BookingNotFoundError(venue_id)
+    if not venue.is_active:
+        raise BookingNotFoundError(venue_id)
+    if data.guest_name is None or not data.guest_name.strip():
+        raise BookingRuleViolationError("guest_name is required")
+    if not data.guest_phone_raw or not data.guest_phone_raw.strip():
+        raise BookingRuleViolationError("phone is required for ONLINE booking")
+
+    # 1. shared schedule advisory lock (create reads schedule, §32.2).
+    await acquire_schedule_lock_shared(session, venue_id)
+
+    # 2. resolve the shift/snapshot using the canonical Stage 3 resolver.
+    venue_tz = load_timezone(venue.timezone)
+    schedule = await load_schedule_table(session, venue_id)
+    containing = shift_containing(schedule, data.starts_at, venue_tz)
+    if containing is None:
+        raise BookingRuleViolationError("no shift contains the requested start time")
+    business_date, shift = containing
+
+    # 3. halls ASC FOR SHARE, then tables ASC FOR SHARE (§32.1).
+    halls, tables = await _lock_halls_tables(session, venue_id, [data.table_id])
+
+    # 4. operation_now, after every business lock.
+    now = await operation_now(session)
+
+    # 5. Final plain SELECT kill-switch gate after the locks (§32.2, §54.11a).
+    #    Public create does not FOR SHARE the venues row, so disabling online
+    #    booking stays responsive even under abuse.
+    # Read columns explicitly: session.get() can return the pre-lock identity-map
+    # object and miss a kill switch committed while this request waited.
+    fresh = (
+        await session.execute(
+            select(Venue.is_active, Venue.online_booking_enabled).where(Venue.id == venue_id)
+        )
+    ).one_or_none()
+    if fresh is None or not fresh.is_active or not fresh.online_booking_enabled:
+        raise OnlineBookingDisabledError()
+
+    # 6. re-validate time/shift/bookability/capacity/conflicts on locked state.
+    try:
+        validate_booking_interval(
+            starts_at=data.starts_at, ends_at=data.ends_at, shift=shift, now=now
+        )
+    except BookingRuleError as exc:
+        raise BookingRuleViolationError(exc.reason) from exc
+    if business_date > booking_horizon_end(current_business_date(now, schedule, venue_tz)):
+        raise BookingRuleViolationError("business date is beyond the booking horizon")
+    _check_bookable(tables, halls)
+    _assert_capacity(tables, data.party_size, data.starts_at, data.ends_at)
+    conflicts = await _conflicting_booking_ids(
+        session, venue_id, [data.table_id], data.starts_at, data.ends_at
+    )
+    if conflicts:
+        raise BookingConflictError(conflicts)
+
+    # 7. booking counter, booking, occupancies, event.
+    number = await _next_booking_number(session, venue_id)
+    ip_hmac_expires = now + timedelta(days=ip_hmac_ttl_days)
+    booking = Booking(
+        venue_id=venue_id,
+        number=number,
+        business_date=business_date,
+        shift_starts_at=shift.start,
+        shift_ends_at=shift.end,
+        starts_at=data.starts_at,
+        ends_at=data.ends_at,
+        guest_name=data.guest_name.strip(),
+        guest_phone_raw=data.guest_phone_raw,
+        guest_phone_normalized=normalize_phone(data.guest_phone_raw),
+        party_size=data.party_size,
+        guest_comment=data.guest_comment,
+        public_idempotency_key=key,
+        public_request_hmac=request_hmac,
+        admin_idempotency_key=None,
+        admin_request_hmac=None,
+        request_ip_hmac=request_ip_hmac,
+        request_ip_hmac_expires_at=ip_hmac_expires,
+        source="ONLINE",
+        status="NEW",
+        waiting_at=None,
+        opened_at=None,
+        closed_at=None,
+        canceled_at=None,
+        cancellation_reason=None,
+        cancellation_note=None,
+        privacy_policy_version=data.privacy_policy_version,
+        privacy_accepted_at=now,
+        anonymized_at=None,
+        version=1,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(booking)
+    await session.flush()
+    for table in tables:
+        session.add(
+            TableOccupancy(
+                venue_id=venue_id,
+                table_id=table.id,
+                kind="BOOKING",
+                booking_id=booking.id,
+                starts_at=data.starts_at,
+                ends_at=data.ends_at,
+                is_active=True,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+    session.add(
+        _event(
+            venue_id=venue_id,
+            booking_id=booking.id,
+            event_type="BOOKING_CREATED",
+            actor_type="PUBLIC",
+            admin_session_id=None,
+            created_at=now,
+            payload={
+                "source": "ONLINE",
+                "party_size": data.party_size,
+                "business_date": business_date.isoformat(),
+                "starts_at": data.starts_at.isoformat(),
+                "ends_at": data.ends_at.isoformat(),
+                "table_ids": [table.id for table in tables],
+            },
+        )
+    )
+    await session.flush()
+    return booking
+
+
+async def _replay_public(
+    session: AsyncSession, venue_id: int, booking: Booking, request_hmac: str
+) -> BookingView:
+    _assert_public_replay(booking, request_hmac)
+    return await view_of(session, booking)
+
+
+async def create_public_booking(
+    session: AsyncSession,
+    *,
+    venue_id: int,
+    data: PublicBookingInput,
+    idempotency_key: str,
+    hmac_key: str,
+    request_ip_hmac: str,
+    ip_hmac_ttl_days: int,
+) -> tuple[BookingView, bool]:
+    """Create a public ONLINE booking idempotently (§18, §18.2, §32.2).
+
+    Returns ``(view, created)``: ``created=False`` marks an idempotent replay
+    (HTTP 200); a fresh booking is 201. The idempotency lookup happens before
+    any mutable validation, so a replay survives a changed schedule/kill switch.
+    """
+    key = parse_idempotency_key(idempotency_key)
+    request_hmac = public_request_hmac(hmac_key, venue_id=venue_id, data=data)
+
+    # Idempotency lookup *before* mutable validations (§18.2/§18.2 step 3–6).
+    async with session.begin():
+        existing = await find_by_public_key(session, venue_id, key)
+    if existing is not None:
+        return await _replay_public(session, venue_id, existing, request_hmac), False
+
+    for attempt in range(MAX_ATTEMPTS):
+        try:
+            async with session.begin():
+                booking = await _create_public_once(
+                    session,
+                    venue_id=venue_id,
+                    data=data,
+                    key=key,
+                    request_hmac=request_hmac,
+                    request_ip_hmac=request_ip_hmac,
+                    ip_hmac_ttl_days=ip_hmac_ttl_days,
+                )
+            return await view_of(session, booking), True
+        except IntegrityError as exc:
+            state = _sqlstate(exc)
+            if state == "23505":  # public idempotency-key unique race -> replay
+                async with session.begin():
+                    existing = await find_by_public_key(session, venue_id, key)
+                if existing is not None:
+                    return await _replay_public(session, venue_id, existing, request_hmac), False
+                raise
+            if state == "23P01":  # exclusion constraint -> BOOKING_CONFLICT
+                async with session.begin():
+                    existing = await find_by_public_key(session, venue_id, key)
+                if existing is not None:
+                    return await _replay_public(session, venue_id, existing, request_hmac), False
                 raise BookingConflictError([]) from exc
             raise
         except DBAPIError as exc:

@@ -30,7 +30,7 @@ async def operation_now(session: AsyncSession) -> datetime:
     acquired, and use the returned value for the rest of that mutation.
     """
     result = await session.execute(text("SELECT clock_timestamp()"))
-    value = result.scalar_one()
+    value: object = result.scalar_one()
     if not isinstance(value, datetime):
         raise TypeError("clock_timestamp() did not return a datetime")
     return value

@@ -124,6 +124,32 @@ class Settings(BaseSettings):
     # Rolling timezone capability horizon for production venues (§53).
     timezone_horizon_days: Annotated[int, Field(ge=1, le=3660)] = 400
 
+    # --- Public booking (PROJECT-SPEC §32.2, §40, §42, §50) ------------------
+    # Soft, in-memory, per-process rate limits (§40). Not a security boundary;
+    # production with multiple processes either shares storage or scales these
+    # counts by the process count.
+    public_availability_rate_window_seconds: Annotated[int, Field(ge=1, le=86_400)] = 60
+    public_availability_rate_max_requests: Annotated[int, Field(ge=1, le=10_000)] = 60
+    public_create_rate_window_seconds: Annotated[int, Field(ge=1, le=86_400)] = 300
+    public_create_rate_max_requests: Annotated[int, Field(ge=1, le=10_000)] = 10
+    public_create_burst_window_seconds: Annotated[int, Field(ge=1)] = 10
+    public_create_burst_max_requests: Annotated[int, Field(ge=1)] = 5
+    public_create_day_max_requests: Annotated[int, Field(ge=1)] = 100
+    public_abuse_window_seconds: Annotated[int, Field(ge=1)] = 600
+    public_abuse_threshold: Annotated[int, Field(ge=1)] = 50
+    public_abuse_cooldown_seconds: Annotated[int, Field(ge=1)] = 900
+    # CAPTCHA adapter/feature-flag hook (§40, §50). Disabled by default; no
+    # external provider is wired in v1. When enabled without a configured
+    # provider the create path rejects the request instead of silently passing.
+    public_captcha_enabled: bool = False
+    # Versioned privacy policy the guest consents to on ONLINE create (§42).
+    # Bumped when the legal text changes; the booking stores the accepted version.
+    public_privacy_policy_version: str = "1.0.0"
+    # Retention for the short-lived ``request_ip_hmac`` abuse fingerprint (§40).
+    # Housekeeping nulls the fingerprint after this TTL; booking correctness is
+    # unaffected by the value or rotation of ``ABUSE_HMAC_KEY``.
+    request_ip_hmac_ttl_days: Annotated[int, Field(ge=1, le=365)] = 7
+
     # --- secrets ------------------------------------------------------------
     idempotency_hmac_key: str = "change-me-idempotency-hmac-key"
     abuse_hmac_key: str = "change-me-abuse-hmac-key"

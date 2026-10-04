@@ -22,6 +22,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db_session
+from app.services.public_rate_limit import public_abuse_alert_count
 from app.services.timezone_capability import get_monitor
 from app.settings import Settings, get_settings
 
@@ -45,6 +46,7 @@ class OpsResponse(BaseModel):
     # They are reported as explicit placeholders rather than silently omitted.
     outbox_unacknowledged_dead: int = 0
     timezone_capability: Literal["ok", "unsupported"] = "ok"
+    online_abuse_alerts: int = 0
 
 
 @router.get("/health/live", response_model=LivenessResponse)
@@ -95,10 +97,12 @@ async def ops(
     capability = monitor.snapshot() if monitor is not None else None
     timezone_ok = capability is None or not capability.checked or capability.status == "ok"
 
-    degraded = not database_ok or not timezone_ok
+    abuse_alerts = public_abuse_alert_count()
+    degraded = not database_ok or not timezone_ok or abuse_alerts > 0
     return OpsResponse(
         status="ok" if not degraded else "degraded",
         database="ok" if database_ok else "unavailable",
         environment=settings.env.value,
         timezone_capability="ok" if timezone_ok else "unsupported",
+        online_abuse_alerts=abuse_alerts,
     )

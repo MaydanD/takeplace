@@ -44,8 +44,14 @@ def main(argv: list[str] | None = None) -> int:
     schema = build_schema()
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
-    # Stable formatting keeps the committed artifact diff-friendly.
-    output.write_text(json.dumps(schema, indent=2, sort_keys=True, ensure_ascii=False) + "\n")
+    # Stable formatting keeps the committed artifact diff-friendly. Explicit
+    # UTF-8 matters on Windows, where the default `write_text` encoding is the
+    # ANSI code page (e.g. cp1251) and would corrupt non-ASCII descriptions.
+    output.write_text(
+        json.dumps(schema, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
     print(f"wrote OpenAPI schema to {output}")
     return 0
 

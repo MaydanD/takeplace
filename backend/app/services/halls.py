@@ -254,7 +254,7 @@ async def _capacity_breakers(
     its UPDATE, so a concurrent booking create is serialised behind this check.
     """
     rows = await session.execute(
-        select(TableOccupancy.booking_id, TableOccupancy.table_id)
+        select(Booking.id, TableOccupancy.table_id)
         .join(Booking, Booking.id == TableOccupancy.booking_id)
         .where(
             TableOccupancy.venue_id == venue_id,

@@ -89,6 +89,43 @@ class TableNumberTakenError(ServiceError):
         self.number = number
 
 
+class OnlineBookingDisabledError(ServiceError):
+    """Public booking create is disabled by the venue kill switch (§32.2, §54.11a)."""
+
+    def __init__(self) -> None:
+        super().__init__("online booking is disabled for this venue")
+
+
+class PublicBookingRateLimitedError(ServiceError):
+    """Public create hit the soft create rate limit (§40)."""
+
+    def __init__(self, retry_after_seconds: int) -> None:
+        super().__init__("too many public booking requests")
+        self.retry_after_seconds = retry_after_seconds
+
+
+class PublicAvailabilityRateLimitedError(ServiceError):
+    """Public availability read hit the soft read rate limit (§40)."""
+
+    def __init__(self, retry_after_seconds: int) -> None:
+        super().__init__("too many public availability requests")
+        self.retry_after_seconds = retry_after_seconds
+
+
+class CaptchaRequiredError(ServiceError):
+    """CAPTCHA is enabled for this venue and the request did not pass it (§50)."""
+
+    def __init__(self) -> None:
+        super().__init__("captcha verification is required")
+
+
+class HoneypotError(ServiceError):
+    """Honeypot field was filled (§40, §50)."""
+
+    def __init__(self) -> None:
+        super().__init__("invalid submission")
+
+
 class BookingNotFoundError(ServiceError):
     """A booking is not visible to this tenant (wrong venue -> 404, §7.1)."""
 

@@ -17,6 +17,7 @@ from app.logging_config import configure_logging, get_logger
 from app.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
 from app.security.limits import init_limiters, reset_limiters
 from app.security.passwords import init_password_hasher, reset_password_hasher
+from app.services.public_rate_limit import init_public_rate_limiters, reset_public_rate_limiters
 from app.services.timezone_capability import init_monitor, reset_monitor
 from app.settings import Settings, get_settings
 
@@ -48,6 +49,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         init_password_hasher(settings.argon2_max_concurrency)
         reset_limiters()
         init_limiters(settings)
+        reset_public_rate_limiters()
+        init_public_rate_limiters(settings)
         reset_monitor()
         monitor = init_monitor(get_session_factory(), horizon_days=settings.timezone_horizon_days)
         monitor_task = asyncio.create_task(monitor.run_forever())
@@ -63,6 +66,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             with suppress(asyncio.CancelledError):
                 await monitor_task
             reset_monitor()
+            reset_public_rate_limiters()
             reset_limiters()
             reset_password_hasher()
             await dispose_engine()
