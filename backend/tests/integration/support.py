@@ -22,6 +22,8 @@ from app.settings import Settings, get_settings
 from fastapi.testclient import TestClient
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
+REPO_ROOT = BACKEND_ROOT.parent
+EXAMPLE_LAYOUT_PATH = REPO_ROOT / "examples" / "bar-layout.json"
 APP_URL = os.environ.get("TAKEPLACE_TEST_DATABASE_URL")
 ORIGIN = "http://localhost:5173"
 PASSWORD = "initial-password-0123456789"
@@ -36,6 +38,8 @@ SETTINGS_URL = f"{ADMIN}/settings"
 SCHEDULE_URL = f"{ADMIN}/schedule"
 SCHEDULE_EXCEPTIONS_URL = f"{ADMIN}/schedule/exceptions"
 BUSINESS_DAY_URL = f"{ADMIN}/schedule/business-day"
+HALLS_URL = f"{ADMIN}/halls"
+TABLES_URL = f"{ADMIN}/tables"
 
 TEST_HMAC_KEYS = {
     "idempotency_hmac_key": "test-idempotency-key-0123456789",
@@ -88,6 +92,13 @@ def create_venue(
     ]
     if password is not None:
         args += ["--password", password]
+    return run_cli(*args)
+
+
+def import_layout_cli(venue: str, path: str | Path, *, dry_run: bool = False):
+    args = ["import-layout", venue, "--file", str(path)]
+    if dry_run:
+        args.append("--dry-run")
     return run_cli(*args)
 
 

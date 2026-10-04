@@ -1,0 +1,40 @@
+{
+  "halls": [
+    {
+      "name": "Главный зал",
+      "canvas_width": 1200,
+      "canvas_height": 800,
+      "is_bookable": true,
+      "static_elements": [
+        { "type": "wall", "x": 0, "y": 0, "width": 1200, "height": 12, "z_index": 0 },
+        { "type": "wall", "x": 0, "y": 788, "width": 1200, "height": 12, "z_index": 0 },
+        { "type": "bar", "x": 24, "y": 560, "width": 520, "height": 90, "label": "Бар", "z_index": 1 },
+        { "type": "stage", "x": 760, "y": 40, "width": 400, "height": 200, "label": "Сцена", "z_index": 1 },
+        { "type": "text", "x": 40, "y": 30, "text": "Вход", "font_size": 20, "z_index": 2 },
+        { "type": "zone", "x": 900, "y": 560, "width": 260, "height": 200, "label": "VIP", "z_index": 1 }
+      ],
+      "tables": [
+        { "number": "1", "capacity": 4, "shape": "rect", "x": 80, "y": 120, "width": 90, "height": 90, "z_index": 3 },
+        { "number": "2", "capacity": 4, "shape": "rect", "x": 220, "y": 120, "width": 90, "height": 90, "z_index": 3 },
+        { "number": "3", "capacity": 2, "shape": "circle", "x": 360, "y": 120, "width": 80, "height": 80, "z_index": 3 },
+        { "number": "4", "capacity": 6, "shape": "rect", "x": 80, "y": 280, "width": 160, "height": 90, "z_index": 3 },
+        { "number": "5", "capacity": 6, "shape": "rect", "x": 280, "y": 280, "width": 160, "height": 90, "z_index": 3 },
+        { "number": "6", "capacity": 2, "shape": "circle", "x": 940, "y": 600, "width": 80, "height": 80, "z_index": 4, "is_bookable": false }
+      ]
+    },
+    {
+      "name": "Летняя веранда",
+      "canvas_width": 800,
+      "canvas_height": 600,
+      "is_bookable": true,
+      "static_elements": [
+        { "type": "bar", "x": 0, "y": 0, "width": 800, "height": 60, "label": "Барная стойка", "z_index": 1 }
+      ],
+      "tables": [
+        { "number": "1", "capacity": 4, "shape": "circle", "x": 120, "y": 160, "width": 100, "height": 100, "z_index": 2 },
+        { "number": "2", "capacity": 4, "shape": "circle", "x": 340, "y": 160, "width": 100, "height": 100, "z_index": 2 },
+        { "number": "3", "capacity": 8, "shape": "rect", "x": 180, "y": 380, "width": 200, "height": 100, "z_index": 2 }
+      ]
+    }
+  ]
+}
