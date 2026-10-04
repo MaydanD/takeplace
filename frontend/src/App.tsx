@@ -1,19 +1,30 @@
 import { Route, Routes } from "react-router-dom";
 
+import { RequireAdmin } from "@/components/RequireAdmin";
+import { AdminDashboardPage } from "@/pages/AdminDashboardPage";
+import { AdminLoginPage } from "@/pages/AdminLoginPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { SystemStatusPage } from "@/pages/SystemStatusPage";
 
 /**
- * Stage 1 routing.
+ * Application routing.
  *
- * The public booking flow and admin UI arrive in later stages (PROJECT-SPEC §50,
- * §51). This shell exists so those routes have a mounted application and a
- * working backend connection to build on.
+ * Stage 1 exposes the status page; Stage 2 adds the isolated admin area. The
+ * public booking flow arrives in later stages (PROJECT-SPEC §50, §51).
  */
 export function App() {
   return (
     <Routes>
       <Route path="/" element={<SystemStatusPage />} />
+      <Route path="/admin/login" element={<AdminLoginPage />} />
+      <Route
+        path="/admin"
+        element={
+          <RequireAdmin>
+            <AdminDashboardPage />
+          </RequireAdmin>
+        }
+      />
       <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );

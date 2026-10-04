@@ -2,8 +2,7 @@
  * Typed API client foundation.
  *
  * Transport types come from the generated OpenAPI schema (`schema.ts`), never
- * hand-written (PROJECT-SPEC §3.1). The client itself stays small: Stage 1 only
- * needs health polling to prove frontend -> backend connectivity.
+ * hand-written (PROJECT-SPEC §3.1).
  */
 import type { components } from "@/api/generated/schema";
 
@@ -31,38 +30,64 @@ export class ApiError extends Error {
   }
 }
 
+export interface ApiRequestOptions {
+  method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
+  body?: unknown;
+  // `| undefined` keeps callers that pass an optional signal valid under
+  // `exactOptionalPropertyTypes`.
+  signal?: AbortSignal | undefined;
+}
+
 /**
  * Perform a JSON request and parse the response.
  *
- * Backend errors carry a machine-readable `code` that the UI branches on; the
- * human-readable `detail` is only for display (PROJECT-SPEC §36).
+ * `credentials: "include"` sends the admin session cookie on same-origin
+ * requests; the browser adds the `Origin` header that the backend uses as its
+ * CSRF check (PROJECT-SPEC §39.3). Backend errors carry a machine-readable
+ * `code` that the UI branches on; the `detail` is only for display (§36).
  */
-export async function apiGet<T>(path: string, init?: RequestInit): Promise<T> {
+export async function apiRequest<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
+  const { method = "GET", body, signal } = options;
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (body !== undefined) {
+    headers["Content-Type"] = "application/json";
+  }
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    headers: { Accept: "application/json", ...init?.headers },
+    method,
+    credentials: "include",
+    headers,
+    ...(signal ? { signal } : {}),
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
 
   if (!response.ok) {
     let code: string | undefined;
     let message = response.statusText;
     try {
-      const body = (await response.json()) as { detail?: string; code?: string };
-      code = body.code;
-      message = body.detail ?? message;
+      const errorBody = (await response.json()) as { detail?: string; code?: string };
+      code = errorBody.code;
+      message = errorBody.detail ?? message;
     } catch {
       // Non-JSON error body; keep the status text.
     }
     throw new ApiError(response.status, message, code);
   }
 
+  if (response.status === 204) {
+    return undefined as T;
+  }
   return (await response.json()) as T;
 }
 
+export function apiGet<T>(path: string, init?: RequestInit): Promise<T> {
+  return apiRequest<T>(path, { signal: init?.signal ?? undefined });
+}
+
 export function fetchReadiness(signal?: AbortSignal): Promise<ReadinessResponse> {
-  return apiGet<ReadinessResponse>("/health/ready", signal ? { signal } : undefined);
+  return apiRequest<ReadinessResponse>("/health/ready", { signal });
 }
 
 export function fetchOps(signal?: AbortSignal): Promise<OpsResponse> {
-  return apiGet<OpsResponse>("/health/ops", signal ? { signal } : undefined);
+  return apiRequest<OpsResponse>("/health/ops", { signal });
 }

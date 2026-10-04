@@ -1,6 +1,43 @@
 {
   "components": {
     "schemas": {
+      "AdminSummary": {
+        "description": "The authenticated admin account. Never contains the password hash.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "login": {
+            "title": "Login",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "login",
+          "is_active"
+        ],
+        "title": "AdminSummary",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
       "LivenessResponse": {
         "properties": {
           "status": {
@@ -13,6 +50,44 @@
           "status"
         ],
         "title": "LivenessResponse",
+        "type": "object"
+      },
+      "LoginRequest": {
+        "properties": {
+          "login": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Login",
+            "type": "string"
+          },
+          "password": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "login",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "type": "object"
+      },
+      "MeResponse": {
+        "properties": {
+          "admin": {
+            "$ref": "#/components/schemas/AdminSummary"
+          },
+          "venue": {
+            "$ref": "#/components/schemas/VenueSummary"
+          }
+        },
+        "required": [
+          "admin",
+          "venue"
+        ],
+        "title": "MeResponse",
         "type": "object"
       },
       "OpsResponse": {
@@ -85,6 +160,177 @@
         ],
         "title": "ReadinessResponse",
         "type": "object"
+      },
+      "SettingsUpdate": {
+        "description": "Editable venue settings.\n\n``slug``, ``timezone`` and ``is_active`` are intentionally absent: slug and\ntimezone are not runtime-editable in v1, and suspension is a CLI operation.",
+        "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "online_booking_enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Online Booking Enabled"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          }
+        },
+        "title": "SettingsUpdate",
+        "type": "object"
+      },
+      "StatusResponse": {
+        "properties": {
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "StatusResponse",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "VenueSummary": {
+        "description": "Public identity of the tenant the session belongs to.",
+        "properties": {
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "online_booking_enabled": {
+            "title": "Online Booking Enabled",
+            "type": "boolean"
+          },
+          "phone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phone"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "name",
+          "address",
+          "phone",
+          "timezone",
+          "is_active",
+          "online_booking_enabled"
+        ],
+        "title": "VenueSummary",
+        "type": "object"
       }
     }
   },
@@ -95,6 +341,176 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/admin/v1/auth/login": {
+      "post": {
+        "description": "Authenticate and start a server-side session.\n\nWrong login and wrong password return the same response (§39.5). Two cheap\nrate limits run before the CPU-bound Argon2id verify so the bounded pool\ncannot be saturated by garbage logins.",
+        "operationId": "login_api_admin_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login",
+        "tags": [
+          "admin-auth"
+        ]
+      }
+    },
+    "/api/admin/v1/auth/logout": {
+      "post": {
+        "description": "Revoke the current session and clear the cookie.",
+        "operationId": "logout_api_admin_v1_auth_logout_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Logout",
+        "tags": [
+          "admin-auth"
+        ]
+      }
+    },
+    "/api/admin/v1/auth/logout-all": {
+      "post": {
+        "description": "Revoke every session of this venue, including the current one.",
+        "operationId": "logout_all_api_admin_v1_auth_logout_all_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Logout All",
+        "tags": [
+          "admin-auth"
+        ]
+      }
+    },
+    "/api/admin/v1/me": {
+      "get": {
+        "description": "Return the authenticated admin and its venue.\n\nThe venue is derived from the session, never from a client-supplied id.",
+        "operationId": "me_api_admin_v1_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Me",
+        "tags": [
+          "admin-account"
+        ]
+      }
+    },
+    "/api/admin/v1/settings": {
+      "get": {
+        "description": "Return this venue's settings.",
+        "operationId": "get_settings_api_admin_v1_settings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VenueSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Settings",
+        "tags": [
+          "admin-settings"
+        ]
+      },
+      "patch": {
+        "description": "Update this venue's editable settings.\n\nOnly fields the client sent are applied (PATCH semantics); an unknown field\nsuch as ``venue_id`` is dropped by the schema and can never retarget the\nmutation (PROJECT-SPEC §7.1).",
+        "operationId": "patch_settings_api_admin_v1_settings_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VenueSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Settings",
+        "tags": [
+          "admin-settings"
+        ]
+      }
+    },
     "/health/live": {
       "get": {
         "description": "Process liveness: no dependency checks.",
