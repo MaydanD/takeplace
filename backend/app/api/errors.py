@@ -50,3 +50,17 @@ def rate_limited(retry_after_seconds: int) -> ApiError:
     error = ApiError(429, "RATE_LIMITED", "too many requests")
     error.retry_after_seconds = retry_after_seconds  # type: ignore[attr-defined]
     return error
+
+
+def schedule_invalid(detail: str) -> ApiError:
+    """A schedule row violates the grid / consistency rules (§5.2, §5.3)."""
+    return ApiError(422, "SCHEDULE_INVALID", detail)
+
+
+def schedule_overlap(detail: str) -> ApiError:
+    """Adjacent shifts overlap, so the change is rejected (§5.4)."""
+    return ApiError(409, "SCHEDULE_OVERLAP", detail)
+
+
+def not_found(code: str, detail: str) -> ApiError:
+    return ApiError(404, code, detail)

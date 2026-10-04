@@ -28,6 +28,7 @@ from app.services.errors import (
     UnsupportedTimezoneServiceError,
     VenueNotFoundError,
 )
+from app.services.schedule import seed_default_schedule
 
 
 async def create_venue(
@@ -86,6 +87,10 @@ async def create_venue(
         await session.flush()
     except IntegrityError as exc:
         raise LoginTakenError(login) from exc
+
+    # A new venue starts fully closed and is opened day by day in the admin UI
+    # (PROJECT-SPEC §5.2, §53).
+    await seed_default_schedule(session, venue.id)
 
     return venue, admin
 

@@ -38,3 +38,10 @@ class AdminNotFoundError(ServiceError):
 class UnsupportedTimezoneServiceError(ServiceError):
     def __init__(self, message: str) -> None:
         super().__init__(message)
+
+
+class ScheduleConflictError(ServiceError):
+    """Adjacent shifts overlap, so the schedule change is rejected (§5.4)."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)

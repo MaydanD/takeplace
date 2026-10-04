@@ -10,9 +10,18 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from app.db.models.admin import AdminAccount, AdminSession
+from app.db.models.schedule import ScheduleException, WeeklySchedule
 from app.db.models.venue import Venue
 
-__all__ = ["AdminAccount", "AdminSession", "Venue", "REQUIRED_EXTENSIONS", "ensure_extensions"]
+__all__ = [
+    "AdminAccount",
+    "AdminSession",
+    "ScheduleException",
+    "Venue",
+    "WeeklySchedule",
+    "REQUIRED_EXTENSIONS",
+    "ensure_extensions",
+]
 
 # The extension required by the table_occupancies exclusion constraint (§12).
 REQUIRED_EXTENSIONS: tuple[str, ...] = ("btree_gist",)

@@ -17,9 +17,10 @@ random password and print it exactly once; ``--password`` is the explicit
 opt-in to a manual value. Secrets are never echoed in error output.
 
 Scope note: §53 lists the booking counter, base schedule rows and first hall as
-part of onboarding. Those tables belong to Stage 3 (schedule) and Stage 4
-(halls), so they are created by their owning stages once they exist; creating
-them here would require inventing schema ahead of the spec.
+part of onboarding. ``create-venue`` already seeds the seven closed weekly
+schedule rows (Stage 3). The booking counter belongs to Stage 5 and the first
+hall to Stage 4, so they are created by their owning stages rather than invented
+here ahead of the spec.
 """
 
 from __future__ import annotations

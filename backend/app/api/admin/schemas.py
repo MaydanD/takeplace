@@ -5,9 +5,16 @@ Transport types are generated from these models for the frontend.
 
 from __future__ import annotations
 
+from datetime import date, datetime
+
 from pydantic import BaseModel, Field
 
 from app.db.models import AdminAccount, Venue
+
+# Local schedule times are wall-clock ``HH:MM`` values in the venue timezone, on
+# the 5-minute grid (§5.2). They are never ambiguous instants: the business date
+# supplies the calendar day and the shift may cross midnight.
+_TIME_PATTERN = r"^([01]\d|2[0-3]):[0-5]\d$"
 
 
 class AdminSummary(BaseModel):
@@ -73,3 +80,55 @@ class SettingsUpdate(BaseModel):
     address: str | None = Field(default=None, max_length=300)
     phone: str | None = Field(default=None, max_length=50)
     online_booking_enabled: bool | None = None
+
+
+class ScheduleDay(BaseModel):
+    """One weekday rule. ``is_open=false`` means the day is closed."""
+
+    weekday: int = Field(ge=0, le=6)
+    is_open: bool
+    open_time: str | None = Field(default=None, pattern=_TIME_PATTERN)
+    close_time: str | None = Field(default=None, pattern=_TIME_PATTERN)
+
+
+class WeeklyScheduleResponse(BaseModel):
+    timezone: str
+    weekdays: list[ScheduleDay]
+
+
+class WeeklyScheduleUpdate(BaseModel):
+    """Full replacement of the weekly schedule (all seven weekdays)."""
+
+    weekdays: list[ScheduleDay] = Field(min_length=1, max_length=7)
+
+
+class ScheduleExceptionEntry(BaseModel):
+    date: date
+    is_closed: bool
+    open_time: str | None
+    close_time: str | None
+
+
+class ScheduleExceptionsResponse(BaseModel):
+    timezone: str
+    exceptions: list[ScheduleExceptionEntry]
+
+
+class ScheduleExceptionUpdate(BaseModel):
+    """A date-specific override; it fully replaces the weekly rule (§5.3)."""
+
+    is_closed: bool
+    open_time: str | None = Field(default=None, pattern=_TIME_PATTERN)
+    close_time: str | None = Field(default=None, pattern=_TIME_PATTERN)
+
+
+class BusinessDayResponse(BaseModel):
+    """Computed schedule state for one business date (PROJECT-SPEC §5.1, §5.6)."""
+
+    business_date: date
+    timezone: str
+    is_open: bool
+    is_open_now: bool
+    current_business_date: date
+    shift_start: datetime | None
+    shift_end: datetime | None
