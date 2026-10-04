@@ -180,6 +180,8 @@ bash scripts/migrate.sh local    # применить Alembic напрямую (
   exclusion constraint в ядре бронирования (§12, §45).
 - `20261003_0002` добавляет `venues`, `admin_accounts`, `admin_sessions` с
   CHECK/UNIQUE/индексами из §6.1–6.3.
+- `20261003_0003` добавляет `weekly_schedules` и `schedule_exceptions` с
+  CHECK/UNIQUE из §5.2–5.3.
 - Проверка schema drift: `cd backend && alembic check`.
 
 Инварианты Stage 2 держатся в самой БД (последний арбитр, §44): формат и reserved-
@@ -215,6 +217,37 @@ FK/UNIQUE в БД и покрыта интеграционными тестам�
 
 Raw-пароли и raw session tokens никогда не сохраняются, не логируются и не
 возвращаются в API (§39.7); structured logging редактирует PII/секреты.
+
+---
+
+## Расписание и business day (Stage 3)
+
+- **Weekly schedule** — ровно одна строка на `(venue_id, weekday)`
+  (`weekly_schedules`); новый venue создаётся с семью закрытыми днями.
+  `is_open=false` — выходной. Отдельного поля `closes_next_day` нет: смена через
+  полночь кодируется как `close_time < open_time` (§5.2).
+- **Exceptions** (`schedule_exceptions`) — одна строка на `(venue_id, date)`;
+  исключение полностью переопределяет недельное расписание конкретной business
+  date (§5.3).
+- **5-minute grid** — время и в weekly, и в exception обязано быть кратным
+  5 минутам с нулевыми секундами; это CHECK в БД и domain-валидация до записи
+  (§5.2–5.3, §44.1).
+- **business_date** — каноническая логика в одном доменном месте
+  (`backend/app/domain/schedule.py`, §5.6): для локальной даты `D` резолвятся
+  смены `D-1` и `D`; если `operation_now` внутри смены `D-1` — business date
+  `D-1`, иначе `D`. Поэтому бронь в 02:45 после смены 16:00→02:00 относится к
+  предыдущему дню (§5.1).
+- **Adjacent shifts** — смены соседних business dates не пересекаются (§5.4):
+  изменение weekly проверяет соседние weekday-интервалы, изменение/удаление
+  exception — предыдущую и следующую business date по эффективному расписанию.
+  Ошибка — `409 SCHEDULE_OVERLAP`; невалидная сетка — `422 SCHEDULE_INVALID`.
+- **Advisory lock** — изменения расписания берут exclusive
+  `pg_advisory_xact_lock` по `venue_id` (namespace `schedule`); booking
+  create/reschedule берёт shared-вариант (§32.3).
+- Endpoints (§35): `GET/PUT /api/admin/v1/schedule`,
+  `GET /schedule/exceptions`, `PUT/DELETE /schedule/exceptions/{date}`,
+  `GET /schedule/business-day` (вычисленное состояние). Tenant — только из
+  session.
 
 ---
 
@@ -295,10 +328,10 @@ bash scripts/verify.sh
 takeplace/
 ├─ backend/
 │  ├─ app/
-│  │  ├─ api/            # /api/public/v1, /api/admin/v1 (auth/me/settings), health
-│  │  ├─ domain/         # slug и timezone-валидация
+│  │  ├─ api/            # /api/public/v1, /api/admin/v1 (auth/me/settings/schedule), health
+│  │  ├─ domain/         # slug, timezone, schedule/business-date (§5)
 │  │  ├─ security/       # Argon2id, session tokens, rate limit, cookies
-│  │  ├─ services/       # venues, auth (sessions), timezone capability
+│  │  ├─ services/       # venues, auth (sessions), schedule, timezone capability
 │  │  ├─ queries/        # read-модели
 │  │  ├─ db/             # engine, session, base, time-helper, models/
 │  │  ├─ cli.py          # операторский CLI (§53)
@@ -316,7 +349,7 @@ takeplace/
 │  ├─ src/
 │  │  ├─ api/            # typed client, admin API + hooks, generated/schema.ts
 │  │  ├─ components/     # RequireAdmin (route guard)
-│  │  ├─ pages/          # status / admin login / admin dashboard / not-found
+│  │  ├─ pages/          # status / admin login / dashboard / schedule / not-found
 │  │  └─ ...
 │  ├─ openapi/           # openapi.json (экспорт из backend)
 │  └─ scripts/           # generate-api.mjs
