@@ -6,7 +6,7 @@ from collections.abc import Iterator
 
 import pytest
 from app.main import create_app
-from app.settings import Settings
+from app.settings import Settings, get_settings
 from fastapi.testclient import TestClient
 
 
@@ -24,7 +24,12 @@ def settings() -> Settings:
 
 @pytest.fixture
 def client(settings: Settings) -> Iterator[TestClient]:
-    """HTTP client for the app. Lifespan is skipped so no DB connection opens."""
+    """HTTP client for the app with dependencies bound to the test settings.
+
+    Dependencies resolve ``get_settings`` through this override so the app under
+    test uses the same settings object as the engine/lifespan.
+    """
     app = create_app(settings)
+    app.dependency_overrides[get_settings] = lambda: settings
     with TestClient(app) as test_client:
         yield test_client

@@ -104,6 +104,22 @@ def test_database_url_override_wins() -> None:
     assert settings.migrator_database_url == "postgresql+asyncpg://x:y@h/db"
 
 
+def test_cookie_secure_defaults_to_production_only() -> None:
+    assert Settings(env="development").cookie_secure is False
+    assert Settings(env="staging").cookie_secure is False
+    assert Settings(**_production_kwargs()).cookie_secure is True  # type: ignore[arg-type]
+
+
+def test_cookie_secure_can_be_forced_off_outside_production() -> None:
+    settings = Settings(env="development", session_cookie_secure=False)
+    assert settings.cookie_secure is False
+
+
+def test_production_rejects_insecure_cookie_override() -> None:
+    with pytest.raises(ValidationError, match="SESSION_COOKIE_SECURE"):
+        Settings(**_production_kwargs(session_cookie_secure=False))  # type: ignore[arg-type]
+
+
 def test_vk_key_ring_parses_versions() -> None:
     settings = Settings(
         env="development", vk_encryption_keys=f"1:{_GOOD_VK_KEY[2:]},2:{_GOOD_VK_KEY[2:]}"
