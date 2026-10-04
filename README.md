@@ -96,10 +96,12 @@ docker compose run --rm api takeplace create-venue \
 | `suspend-venue <venue>` | выключает venue и отзывает все его sessions                           |
 | `enable-venue <venue>` | включает venue обратно                                                 |
 | `list-venues`          | список заведений и их статусов                                         |
+| `import-layout <venue>` | upsert залов/столов/static elements из валидируемого JSON (Stage 4)   |
 
 `<venue>` — это id или slug. Флаги `create-venue`: `--address`, `--phone`,
 `--online-booking` (включить онлайн-бронирование сразу) и `--password` (задать
-пароль вручную вместо генерации).
+пароль вручную вместо генерации). `import-layout` принимает `--file <path>` и
+`--dry-run` (проверить файл, ничего не записывая).
 
 По умолчанию `create-venue` и `reset-password` генерируют криптографически
 случайный пароль и печатают его **один раз**.
@@ -108,9 +110,8 @@ docker compose run --rm api takeplace create-venue \
 переходами в rolling horizon **400 дней**; той же проверкой каждые сутки
 сканируются активные заведения и поднимается `/health/ops` (§53, §47).
 
-> Онбординг полного набора (booking counter, базовое расписание, первый зал)
-> выполняется на этапах, которым принадлежат эти таблицы (Stage 3–4); таблиц
-> ещё не существует, поэтому CLI их не создаёт.
+> `create-venue` создаёт venue, admin account, семь закрытых schedule rows и
+> первый зал. Booking counter принадлежит Stage 5 и создаётся там.
 
 ---
 
@@ -182,6 +183,8 @@ bash scripts/migrate.sh local    # применить Alembic напрямую (
   CHECK/UNIQUE/индексами из §6.1–6.3.
 - `20261003_0003` добавляет `weekly_schedules` и `schedule_exceptions` с
   CHECK/UNIQUE из §5.2–5.3.
+- `20261003_0004` добавляет `halls` и `tables` с CHECK/UNIQUE/partial-unique и
+  tenant-safe composite FK из §6.4–6.5.
 - Проверка schema drift: `cd backend && alembic check`.
 
 Инварианты Stage 2 держатся в самой БД (последний арбитр, §44): формат и reserved-
@@ -248,6 +251,43 @@ Raw-пароли и raw session tokens никогда не сохраняютс�
   `GET /schedule/exceptions`, `PUT/DELETE /schedule/exceptions/{date}`,
   `GET /schedule/business-day` (вычисленное состояние). Tenant — только из
   session.
+
+---
+
+## Залы и столы (Stage 4)
+
+- **Halls** (`halls`) — tenant-scoped канвасы: `name`, `canvas_width`,
+  `canvas_height`, `layout_revision`, `is_bookable`, `archived_at`,
+  `static_elements JSONB` (§6.4). Один зал создаётся автоматически при
+  `create-venue`.
+- **Tables** (`tables`) — `number`, `capacity (>0)`, `is_bookable`,
+  `archived_at` и geometry: `x, y, width, height, rotation, shape, z_index`
+  (§6.5). Номер уникален среди неархивных столов зала:
+  `UNIQUE (hall_id, number) WHERE archived_at IS NULL`.
+- **Ownership** — `tables(hall_id, venue_id) → halls(id, venue_id)` composite
+  FK: стол не может ссылаться на зал другого venue (последний арбитр, §7, §44).
+- **Geometry contract** — shape: `rect | circle`; `x,y >= 0`; `width,height > 0`;
+  `0 <= rotation <= 360`. Статические элементы — Pydantic discriminated union
+  ровно из типов спеки (`wall | stage | bar | text | zone`), без arbitrary
+  HTML/JS/SVG, с лимитами на число элементов и размер JSON (§30.3).
+- **`is_bookable` vs archive** — это разные состояния: `is_bookable=false`
+  запрещает новые брони, но не архивирует объект; `archived_at` выводит объект
+  из эксплуатации и хранится для истории. Архивация зала запрещена, пока в нём
+  есть неархивные столы (`409 HALL_ARCHIVE_BLOCKED`, §29.5). `PATCH /tables/{id}`
+  меняет только `is_bookable` и **не** увеличивает `layout_revision` (§35).
+- **API** (§35): `GET/POST /halls`, `GET/PATCH /halls/{id}`,
+  `POST /halls/{id}/archive`, `GET /tables`, `PATCH /tables/{id}`,
+  `POST /tables/{id}/archive`. Tenant — только из session.
+- **Read-only схема + list view** в админке (`/admin/halls`): SVG-отрисовка
+  залов и статических элементов, столы по координатам/размерам/форме,
+  bookable/неактивные различаются цветом, плюс табличный список с hall/номер/
+  capacity/bookable/архив. Без drag-and-drop и редактора (Stage 10).
+- **JSON/CLI import** (`import-layout`) — детерминированный контракт: файл со
+  списком `halls`, у каждого `name`, `canvas_width`, `canvas_height`,
+  `static_elements`, `tables` (со всеми geometry-полями). Зал матчится по
+  `name`, стол — по `number`; ничего не удаляется, повторный запуск идемпотентен.
+  Невалидный payload отклоняется до записи (транзакция не оставляет частей).
+  Пример: `examples/bar-layout.json`.
 
 ---
 
@@ -328,10 +368,10 @@ bash scripts/verify.sh
 takeplace/
 ├─ backend/
 │  ├─ app/
-│  │  ├─ api/            # /api/public/v1, /api/admin/v1 (auth/me/settings/schedule), health
-│  │  ├─ domain/         # slug, timezone, schedule/business-date (§5)
+│  │  ├─ api/            # /api/public/v1, /api/admin/v1 (auth/me/settings/schedule/halls), health
+│  │  ├─ domain/         # slug, timezone, schedule/business-date (§5), layout (§6)
 │  │  ├─ security/       # Argon2id, session tokens, rate limit, cookies
-│  │  ├─ services/       # venues, auth (sessions), schedule, timezone capability
+│  │  ├─ services/       # venues, auth (sessions), schedule, halls/tables/import, tz capability
 │  │  ├─ queries/        # read-модели
 │  │  ├─ db/             # engine, session, base, time-helper, models/
 │  │  ├─ cli.py          # операторский CLI (§53)
@@ -349,10 +389,11 @@ takeplace/
 │  ├─ src/
 │  │  ├─ api/            # typed client, admin API + hooks, generated/schema.ts
 │  │  ├─ components/     # RequireAdmin (route guard)
-│  │  ├─ pages/          # status / admin login / dashboard / schedule / not-found
+│  │  ├─ pages/          # status / login / dashboard / schedule / halls / not-found
 │  │  └─ ...
 │  ├─ openapi/           # openapi.json (экспорт из backend)
 │  └─ scripts/           # generate-api.mjs
+├─ examples/             # пример layout JSON для импорта схемы (Stage 4)
 ├─ infra/postgres/init/  # роли, привилегии, тестовая БД
 ├─ scripts/              # dev.sh, bootstrap-env.sh, migrate.sh, verify.sh
 ├─ docker-compose.yml
