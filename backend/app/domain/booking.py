@@ -16,6 +16,7 @@ import re
 from dataclasses import dataclass
 from datetime import date as date_type
 from datetime import datetime, timedelta
+from typing import Any
 
 from app.db.time import SLOT_MINUTES, ceil_to_5_minutes, floor_to_5_minutes, is_on_5_minute_grid
 from app.domain.schedule import Shift
@@ -234,6 +235,51 @@ def capacity_sufficient(
 def can_transition(current: str, target: str) -> bool:
     """Return whether the state machine permits ``current -> target`` (§9)."""
     return target in ALLOWED_TRANSITIONS.get(current, frozenset())
+
+
+def undo_open_target(events: list[tuple[str, dict[str, Any]]]) -> str | None:
+    """Events must be ordered by id. Text-only edits preserve undo eligibility (§23)."""
+    target = None
+    for kind, payload in events:
+        if kind == "BOOKING_OPENED":
+            previous = payload.get("previous_status", "NEW")  # Stage 7 WALK_IN
+            target = previous if previous in ("NEW", "WAITING") else None
+        elif kind == "BOOKING_EDITED":
+            fields = payload.get("changed_fields")
+            if not isinstance(fields, list) or set(fields) - {
+                "guest_name",
+                "guest_phone_raw",
+                "guest_phone",
+                "guest_comment",
+            }:
+                target = None
+        else:
+            target = None
+    return target
+
+
+def lifecycle_actions(
+    *,
+    status: str,
+    starts_at: datetime,
+    ends_at: datetime,
+    shift_starts_at: datetime,
+    now: datetime,
+    undo_target: str | None = None,
+) -> list[str]:
+    """Temporal/state eligibility; resource conflicts are checked under locks."""
+    actions = []
+    if status == "NEW" and starts_at <= now < ends_at:
+        actions.append("wait")
+    if status in ("NEW", "WAITING"):
+        if shift_starts_at <= now < ends_at:
+            actions.append("open")
+        actions.append("cancel")
+    if status == "OPEN":
+        if now < ends_at and undo_target is not None:
+            actions.append("undo-open")
+        actions.append("close")
+    return actions
 
 
 def status_timestamps_consistent(

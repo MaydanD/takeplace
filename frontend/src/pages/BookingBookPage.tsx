@@ -15,6 +15,9 @@ import {
   fetchBooking,
   fetchBookings,
   fetchHistory,
+  fetchLiveBookings,
+  fetchUnresolved,
+  lifecycleBooking,
   venueInput,
   venueInstant,
   type Booking,
@@ -40,6 +43,9 @@ const sources: Record<string, string> = {
 const events: Record<string, string> = {
   BOOKING_CREATED: "Бронь создана",
   BOOKING_OPENED: "Гости размещены",
+  WAITING_SET: "Ожидание отмечено",
+  OPEN_UNDONE: "Ошибочное размещение отменено",
+  BOOKING_CLOSED: "Визит завершён",
   BOOKING_EDITED: "Данные гостя изменены",
   BOOKING_CANCELED: "Бронь отменена",
   TIME_CHANGED: "Время изменено",
@@ -53,6 +59,26 @@ const dateTime = (value: string, timezone: string) =>
   }).format(new Date(value));
 const tableNames = (ids: number[], tables: TableSummary[]) =>
   ids.map((id) => tables.find((t) => t.id === id)?.number ?? `#${id}`).join(", ") || "—";
+
+function LifecycleWarning({ booking: b }: { booking: Booking }) {
+  if (b.is_previous_shift)
+    return (
+      <strong className="booking-overdue">
+        Прошлая смена · {b.status === "OPEN" ? "требует закрытия" : "требует обработки"}
+      </strong>
+    );
+  if (b.is_overdue)
+    return (
+      <strong className="booking-overdue">
+        {b.status === "OPEN"
+          ? "Гости засиделись · столы заняты"
+          : b.status === "WAITING"
+            ? "Ожидание просрочено"
+            : "Требует обработки"}
+      </strong>
+    );
+  return null;
+}
 
 function eventDetails(payload: Record<string, unknown>, timezone: string, tables: TableSummary[]) {
   const fields: Record<string, string> = {
@@ -295,6 +321,7 @@ function BookingCard({
     queryKey: ["booking", id],
     queryFn: () => fetchBooking(id),
     refetchOnWindowFocus: false,
+    refetchInterval: 30000,
   });
   const history = useQuery({ queryKey: ["booking-history", id], queryFn: () => fetchHistory(id) });
   const [message, setMessage] = useState("");
@@ -315,6 +342,8 @@ function BookingCard({
       await history.refetch();
       setMessage("Изменения сохранены.");
       await client.invalidateQueries({ queryKey: ["booking-book"] });
+      await client.invalidateQueries({ queryKey: ["booking-live"] });
+      await client.invalidateQueries({ queryKey: ["booking-unresolved"] });
     } catch (error) {
       setMessage(bookingError(error));
       if (
@@ -355,6 +384,28 @@ function BookingCard({
           <p>
             <strong>{statuses[b.status]}</strong> · {sources[b.source]} · версия {b.version}
           </p>
+          <LifecycleWarning booking={b} />
+          <div className="booking-search" aria-label="Действия с визитом">
+            {b.available_actions
+              ?.filter((action) => action !== "cancel")
+              .map((action) => (
+                <button
+                  key={action}
+                  disabled={pending || blocked}
+                  onClick={() => void mutate(() => lifecycleBooking(b.id, action, b.version))}
+                >
+                  {action === "wait"
+                    ? "Отметить ожидание"
+                    : action === "open"
+                      ? Date.parse(b.evaluated_at ?? b.starts_at) < Date.parse(b.starts_at)
+                        ? "Разместить раньше"
+                        : "Разместить гостей"
+                      : action === "undo-open"
+                        ? "Отменить ошибочное размещение"
+                        : "Завершить визит"}
+                </button>
+              ))}
+          </div>
           <dl className="facts">
             <div>
               <dt>Бизнес-дата</dt>
@@ -403,7 +454,16 @@ function BookingCard({
               onSubmit={(e) => {
                 e.preventDefault();
                 const values = guestValues(new FormData(e.currentTarget));
-                void mutate(() => editGuest(b.id, { expected_version: b.version, ...values }));
+                const changes = Object.fromEntries(
+                  Object.entries(values).filter(
+                    ([key, value]) => b[key as keyof Booking] !== value,
+                  ),
+                );
+                if (Object.keys(changes).length === 0) {
+                  setMessage("Данные не изменились.");
+                  return;
+                }
+                void mutate(() => editGuest(b.id, { expected_version: b.version, ...changes }));
               }}
             >
               <h3>Данные гостя</h3>
@@ -546,6 +606,18 @@ export function BookingBookPage() {
     queryFn: () => fetchTables({ includeArchived: true }),
   });
   const tables = tableQuery.data?.tables ?? [];
+  const unresolvedPreview = useQuery({
+    queryKey: ["booking-unresolved"],
+    queryFn: fetchUnresolved,
+    refetchInterval: 30000,
+  });
+  const live = useQuery({
+    queryKey: ["booking-live", date],
+    queryFn: ({ signal }) => fetchLiveBookings(date!, signal),
+    enabled: !!date,
+    refetchInterval: 30000,
+  });
+  const liveBookings = live.data ?? [];
   const queryFilters: BookingFilters = {
     ...filters,
     ...(!unresolved && !filters.same_network_as ? { business_date: date ?? null } : {}),
@@ -559,6 +631,7 @@ export function BookingBookPage() {
       fetchBookings({ ...queryFilters, cursor: pageParam ?? null }, signal),
     getNextPageParam: (page) => page.next_cursor ?? undefined,
     enabled: !!date,
+    refetchInterval: 30000,
   });
   const bookings = list.data?.pages.flatMap((page) => page.items) ?? [];
   const groups = [...new Set(bookings.map((b) => b.business_date))].sort().reverse();
@@ -585,6 +658,25 @@ export function BookingBookPage() {
         </button>
       </header>
       {notice && <p role="status">{notice}</p>}
+      {!!unresolvedPreview.data?.items.length && (
+        <p className="callout" role="status">
+          Есть незавершённые брони, включая прошлые смены.{" "}
+          <button
+            onClick={() => {
+              setFilters({});
+              setUnresolved(true);
+            }}
+          >
+            Требуют закрытия / обработки
+          </button>
+        </p>
+      )}
+      {unresolvedPreview.isError && (
+        <p role="alert">
+          Не удалось проверить незавершённые брони.{" "}
+          <button onClick={() => unresolvedPreview.refetch()}>Повторить проверку</button>
+        </p>
+      )}
       <section className="card" aria-label="Фильтры броней">
         <div className="booking-form-grid">
           <label className="field">
@@ -709,6 +801,7 @@ export function BookingBookPage() {
               `Бронь №${booking.number} ${booking.status === "OPEN" ? "создана, гости размещены" : "создана"}.`,
             );
             void client.invalidateQueries({ queryKey: ["booking-book"] });
+            void client.invalidateQueries({ queryKey: ["booking-live"] });
           }}
         />
       )}
@@ -750,10 +843,7 @@ export function BookingBookPage() {
                           {statuses[b.status]}
                           <br />
                           <small>{sources[b.source]}</small>
-                          {["NEW", "WAITING", "OPEN"].includes(b.status) &&
-                            new Date(b.ends_at).getTime() < Date.now() && (
-                              <strong className="booking-overdue">Требует обработки</strong>
-                            )}
+                          <LifecycleWarning booking={b} />
                         </span>
                       </button>
                     ))}
@@ -781,14 +871,31 @@ export function BookingBookPage() {
             {hall.data && (
               <HallCanvas
                 hall={hall.data}
+                liveTableIds={new Set(liveBookings.flatMap((b) => b.live_table_ids))}
                 selectedTableId={filters.table_id ?? undefined}
                 onSelect={(id) => setFilters({ ...filters, table_id: id })}
               />
             )}
             <p className="hint">
-              Выберите стол на схеме, чтобы отфильтровать брони. Цвет показывает доступность для
-              бронирования; занятость смотрите в списке.
+              Оранжевый — гости за столом в выбранную бизнес-дату. Зелёный — стол доступен для
+              бронирования, серый — отключён. Выберите стол для фильтра.
             </p>
+            {live.isError && (
+              <p role="alert">
+                Не удалось загрузить фактическую занятость.{" "}
+                <button onClick={() => live.refetch()}>Обновить занятость</button>
+              </p>
+            )}
+            <ul aria-label="Фактическая занятость">
+              {liveBookings.map((b) => (
+                <li key={b.id}>
+                  <button onClick={() => setSelected(b.id)}>
+                    №{b.number} · Столы {tableNames(b.live_table_ids, tables)}
+                  </button>{" "}
+                  <LifecycleWarning booking={b} />
+                </li>
+              ))}
+            </ul>
           </section>
         </div>
         {selected !== undefined && (

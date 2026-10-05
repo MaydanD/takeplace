@@ -294,6 +294,11 @@ class BookingGuestEdit(BaseModel):
     party_size: int | None = Field(default=None, ge=1, le=1000)
 
 
+class BookingLifecycle(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    expected_version: int = Field(ge=1)
+
+
 class BookingCancel(BaseModel):
     """Cancel an unopened booking (§9, §11)."""
 
@@ -345,6 +350,10 @@ class BookingSummary(BaseModel):
     ends_at: datetime
     table_ids: list[int]
     live_table_ids: list[int]
+    available_actions: list[str]
+    is_overdue: bool
+    is_previous_shift: bool
+    evaluated_at: datetime | None
     opened_at: datetime | None
     waiting_at: datetime | None
     closed_at: datetime | None
@@ -377,6 +386,10 @@ class BookingSummary(BaseModel):
             ends_at=booking.ends_at,
             table_ids=_tables_from_occupancies(view.table_ids),
             live_table_ids=view.live_table_ids,
+            available_actions=view.available_actions,
+            is_overdue=view.is_overdue,
+            is_previous_shift=view.is_previous_shift,
+            evaluated_at=view.evaluated_at,
             opened_at=booking.opened_at,
             waiting_at=booking.waiting_at,
             closed_at=booking.closed_at,

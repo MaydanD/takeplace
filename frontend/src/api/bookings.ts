@@ -29,6 +29,27 @@ export const cancelBooking = (id: number, body: BookingCancel) =>
   apiRequest<Booking>(`${base}/${id}/cancel`, { method: "POST", body });
 export const changeTime = (id: number, body: ChangeTime) =>
   apiRequest<Booking>(`${base}/${id}/change-time`, { method: "POST", body });
+export const lifecycleBooking = (id: number, action: string, expected_version: number) =>
+  apiRequest<Booking>(`${base}/${id}/${action}`, { method: "POST", body: { expected_version } });
+
+export async function fetchLiveBookings(business_date: string, signal?: AbortSignal) {
+  const items: Booking[] = [];
+  let cursor: number | null = null;
+  let more = true;
+  while (more) {
+    const page = await fetchBookings({ business_date, status: "OPEN", limit: 200, cursor }, signal);
+    items.push(...page.items);
+    const next = page.next_cursor ?? null;
+    // The server cursor is a strictly decreasing booking id; a non-advancing
+    // cursor would loop forever, so stop defensively.
+    more = next !== null && (cursor === null || next < cursor);
+    cursor = next;
+  }
+  return items;
+}
+
+export const fetchUnresolved = () =>
+  apiRequest<components["schemas"]["BookingListResponse"]>(`${base}/unresolved?limit=1`);
 
 export function bookingError(error: unknown): string {
   if (!(error instanceof ApiError))

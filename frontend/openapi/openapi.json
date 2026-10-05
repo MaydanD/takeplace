@@ -366,6 +366,21 @@
         "title": "BookingHistoryResponse",
         "type": "object"
       },
+      "BookingLifecycle": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_version"
+        ],
+        "title": "BookingLifecycle",
+        "type": "object"
+      },
       "BookingListResponse": {
         "properties": {
           "items": {
@@ -396,6 +411,13 @@
       "BookingSummary": {
         "description": "Booking representation for the admin book (no idempotency keys/HMACs).",
         "properties": {
+          "available_actions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Available Actions",
+            "type": "array"
+          },
           "business_date": {
             "format": "date",
             "title": "Business Date",
@@ -461,6 +483,18 @@
             "title": "Ends At",
             "type": "string"
           },
+          "evaluated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluated At"
+          },
           "guest_comment": {
             "anyOf": [
               {
@@ -508,6 +542,14 @@
           "id": {
             "title": "Id",
             "type": "integer"
+          },
+          "is_overdue": {
+            "title": "Is Overdue",
+            "type": "boolean"
+          },
+          "is_previous_shift": {
+            "title": "Is Previous Shift",
+            "type": "boolean"
           },
           "live_table_ids": {
             "items": {
@@ -610,6 +652,10 @@
           "ends_at",
           "table_ids",
           "live_table_ids",
+          "available_actions",
+          "is_overdue",
+          "is_previous_shift",
+          "evaluated_at",
           "opened_at",
           "waiting_at",
           "closed_at",
@@ -2891,6 +2937,58 @@
         ]
       }
     },
+    "/api/admin/v1/bookings/{booking_id}/close": {
+      "post": {
+        "operationId": "post_close_api_admin_v1_bookings__booking_id__close_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "title": "Booking Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BookingLifecycle"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Close",
+        "tags": [
+          "admin-bookings"
+        ]
+      }
+    },
     "/api/admin/v1/bookings/{booking_id}/history": {
       "get": {
         "description": "Return the append-only history ordered by ``booking_events.id`` (§6.10).",
@@ -2929,6 +3027,162 @@
           }
         },
         "summary": "Get Booking History",
+        "tags": [
+          "admin-bookings"
+        ]
+      }
+    },
+    "/api/admin/v1/bookings/{booking_id}/open": {
+      "post": {
+        "operationId": "post_open_api_admin_v1_bookings__booking_id__open_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "title": "Booking Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BookingLifecycle"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Open",
+        "tags": [
+          "admin-bookings"
+        ]
+      }
+    },
+    "/api/admin/v1/bookings/{booking_id}/undo-open": {
+      "post": {
+        "operationId": "post_undo_open_api_admin_v1_bookings__booking_id__undo_open_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "title": "Booking Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BookingLifecycle"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Undo Open",
+        "tags": [
+          "admin-bookings"
+        ]
+      }
+    },
+    "/api/admin/v1/bookings/{booking_id}/wait": {
+      "post": {
+        "operationId": "post_wait_api_admin_v1_bookings__booking_id__wait_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "title": "Booking Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BookingLifecycle"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Wait",
         "tags": [
           "admin-bookings"
         ]

@@ -32,6 +32,7 @@ from app.api.admin.schemas import (
     BookingEventSummary,
     BookingGuestEdit,
     BookingHistoryResponse,
+    BookingLifecycle,
     BookingListResponse,
     BookingSummary,
 )
@@ -55,6 +56,7 @@ from app.services.bookings import (
     create_admin_booking,
     edit_booking_guest,
     get_booking,
+    lifecycle_booking,
     list_bookings,
     list_events,
     view_of,
@@ -294,3 +296,66 @@ async def post_change_time(
             admin_session_id=context.session.id,
         )
     return BookingSummary.from_view(view)
+
+
+async def _lifecycle(
+    booking_id: int,
+    payload: BookingLifecycle,
+    context: AuthContextDep,
+    session: SessionDep,
+    action: str,
+) -> BookingSummary:
+    with _translating_errors():
+        view = await lifecycle_booking(
+            session,
+            venue_id=context.venue_id,
+            booking_id=booking_id,
+            expected_version=payload.expected_version,
+            action=action,
+            admin_session_id=context.session.id,
+        )
+    return BookingSummary.from_view(view)
+
+
+@router.post(
+    "/{booking_id}/wait",
+    response_model=BookingSummary,
+    dependencies=[Depends(require_trusted_origin)],
+)
+async def post_wait(
+    booking_id: int, payload: BookingLifecycle, context: AuthContextDep, session: SessionDep
+) -> BookingSummary:
+    return await _lifecycle(booking_id, payload, context, session, "wait")
+
+
+@router.post(
+    "/{booking_id}/open",
+    response_model=BookingSummary,
+    dependencies=[Depends(require_trusted_origin)],
+)
+async def post_open(
+    booking_id: int, payload: BookingLifecycle, context: AuthContextDep, session: SessionDep
+) -> BookingSummary:
+    return await _lifecycle(booking_id, payload, context, session, "open")
+
+
+@router.post(
+    "/{booking_id}/undo-open",
+    response_model=BookingSummary,
+    dependencies=[Depends(require_trusted_origin)],
+)
+async def post_undo_open(
+    booking_id: int, payload: BookingLifecycle, context: AuthContextDep, session: SessionDep
+) -> BookingSummary:
+    return await _lifecycle(booking_id, payload, context, session, "undo-open")
+
+
+@router.post(
+    "/{booking_id}/close",
+    response_model=BookingSummary,
+    dependencies=[Depends(require_trusted_origin)],
+)
+async def post_close(
+    booking_id: int, payload: BookingLifecycle, context: AuthContextDep, session: SessionDep
+) -> BookingSummary:
+    return await _lifecycle(booking_id, payload, context, session, "close")

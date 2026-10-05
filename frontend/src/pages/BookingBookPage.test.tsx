@@ -52,6 +52,10 @@ const table = {
 };
 function routes() {
   return {
+    // The Stage 8 live widget queries OPEN bookings; return none so the mocked
+    // single booking is not duplicated as a live row. Inserted first because
+    // mockFetch matches keys in insertion order (path = substring after the space).
+    [`GET status=OPEN`]: { status: 200, body: { items: [], next_cursor: null } },
     [`GET ${root}/me`]: {
       status: 200,
       body: { venue: { name: "Кафе", timezone: "Europe/Moscow" }, admin: { login: "admin" } },
@@ -152,10 +156,16 @@ describe("Booking Book", () => {
     vi.stubGlobal("fetch", fetch);
     renderWithProviders(<BookingBookPage />);
     await userEvent.click(await screen.findByRole("button", { name: /№42/ }));
+    const nameField = await screen.findByLabelText("Имя гостя");
+    await userEvent.clear(nameField);
+    await userEvent.type(nameField, "Локальное имя");
     await userEvent.click(await screen.findByRole("button", { name: "Сохранить гостя" }));
     expect(await screen.findByText(/Загружена новая версия/)).toBeInTheDocument();
     expect(await screen.findByDisplayValue("Серверное имя")).toBeInTheDocument();
     expect(fetch.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1);
+    const nameField2 = screen.getByLabelText("Имя гостя");
+    await userEvent.clear(nameField2);
+    await userEvent.type(nameField2, "Второе имя");
     await userEvent.click(screen.getByRole("button", { name: "Сохранить гостя" }));
     const writes = fetch.mock.calls.filter(([, init]) => init?.method === "PATCH");
     expect(JSON.parse(String(writes[1]?.[1]?.body)).expected_version).toBe(2);

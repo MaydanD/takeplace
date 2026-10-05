@@ -1,4 +1,4 @@
-"""Read-only OPEN overlay required by Stage 7 WALK_IN (§17.1)."""
+"""Shared dynamic availability for early/overdue OPEN and overdue WAITING (§17)."""
 
 from datetime import datetime
 
@@ -9,7 +9,12 @@ from app.db.models import Booking, BookingLiveTable, TableOccupancy
 
 
 async def live_busy_intervals(
-    session: AsyncSession, venue_id: int, table_id: int, now: datetime
+    session: AsyncSession,
+    venue_id: int,
+    table_id: int,
+    now: datetime,
+    *,
+    exclude_booking_id: int | None = None,
 ) -> list[tuple[datetime, datetime]]:
     bookings = (
         await session.scalars(
@@ -27,8 +32,31 @@ async def live_busy_intervals(
             )
         )
     ).all()
+    waiting = (
+        await session.scalars(
+            select(Booking).where(
+                Booking.venue_id == venue_id,
+                Booking.status == "WAITING",
+                Booking.ends_at < now,
+                Booking.shift_ends_at > now,
+                # Tail tables, not every historical segment table.
+                select(TableOccupancy.id)
+                .where(
+                    TableOccupancy.venue_id == venue_id,
+                    TableOccupancy.booking_id == Booking.id,
+                    TableOccupancy.table_id == table_id,
+                    TableOccupancy.kind == "BOOKING",
+                    TableOccupancy.is_active.is_(True),
+                    TableOccupancy.ends_at == Booking.ends_at,
+                )
+                .exists(),
+            )
+        )
+    ).all()
     intervals = []
-    for booking in bookings:
+    for booking in [*bookings, *waiting]:
+        if booking.id == exclude_booking_id:
+            continue
         occupancies = (
             await session.scalars(
                 select(TableOccupancy).where(

@@ -50,10 +50,10 @@ function StaticShape({ element }: { element: StaticElement }) {
   );
 }
 
-function TableShape({ table, dim }: { table: CanvasTable; dim: boolean }) {
+function TableShape({ table, dim, live }: { table: CanvasTable; dim: boolean; live: boolean }) {
   const { x, y, width, height, rotation, shape, number, capacity, is_bookable } = table;
   const { cx, cy } = centre(x, y, width, height);
-  const fill = is_bookable ? TABLE_FILL : TABLE_FILL_UNBOOKABLE;
+  const fill = live ? "#b45309" : is_bookable ? TABLE_FILL : TABLE_FILL_UNBOOKABLE;
   return (
     <g transform={`rotate(${rotation} ${cx} ${cy})`} opacity={dim ? 0.35 : 1}>
       {shape === "circle" ? (
@@ -76,6 +76,7 @@ export function HallCanvas({
   showArchived = false,
   selectedTableId,
   availableTableIds,
+  liveTableIds,
   onSelect,
 }: {
   hall: Pick<HallDetail, "name" | "canvas_width" | "canvas_height" | "static_elements"> & {
@@ -84,6 +85,7 @@ export function HallCanvas({
   showArchived?: boolean;
   selectedTableId?: number | undefined;
   availableTableIds?: Set<number>;
+  liveTableIds?: Set<number>;
   onSelect?: (tableId: number) => void;
 }) {
   const staticElements = useMemo(
@@ -146,6 +148,7 @@ export function HallCanvas({
               is_bookable: availableTableIds ? availableTableIds.has(table.id) : table.is_bookable,
             }}
             dim={!!table.archived_at}
+            live={liveTableIds?.has(table.id) ?? false}
           />
         </g>
       ))}

@@ -177,6 +177,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/v1/bookings/{booking_id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post Close */
+        post: operations["post_close_api_admin_v1_bookings__booking_id__close_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/v1/bookings/{booking_id}/history": {
         parameters: {
             query?: never;
@@ -191,6 +208,57 @@ export interface paths {
         get: operations["get_booking_history_api_admin_v1_bookings__booking_id__history_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/v1/bookings/{booking_id}/open": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post Open */
+        post: operations["post_open_api_admin_v1_bookings__booking_id__open_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/v1/bookings/{booking_id}/undo-open": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post Undo Open */
+        post: operations["post_undo_open_api_admin_v1_bookings__booking_id__undo_open_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/v1/bookings/{booking_id}/wait": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post Wait */
+        post: operations["post_wait_api_admin_v1_bookings__booking_id__wait_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -778,6 +846,11 @@ export interface components {
             /** Events */
             events: components["schemas"]["BookingEventSummary"][];
         };
+        /** BookingLifecycle */
+        BookingLifecycle: {
+            /** Expected Version */
+            expected_version: number;
+        };
         /** BookingListResponse */
         BookingListResponse: {
             /** Items */
@@ -790,6 +863,8 @@ export interface components {
          * @description Booking representation for the admin book (no idempotency keys/HMACs).
          */
         BookingSummary: {
+            /** Available Actions */
+            available_actions: string[];
             /**
              * Business Date
              * Format: date
@@ -815,6 +890,8 @@ export interface components {
              * Format: date-time
              */
             ends_at: string;
+            /** Evaluated At */
+            evaluated_at: string | null;
             /** Guest Comment */
             guest_comment: string | null;
             /** Guest Name */
@@ -825,6 +902,10 @@ export interface components {
             guest_phone_raw: string | null;
             /** Id */
             id: number;
+            /** Is Overdue */
+            is_overdue: boolean;
+            /** Is Previous Shift */
+            is_previous_shift: boolean;
             /** Live Table Ids */
             live_table_ids: number[];
             /** Number */
@@ -1850,6 +1931,41 @@ export interface operations {
             };
         };
     };
+    post_close_api_admin_v1_bookings__booking_id__close_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booking_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BookingLifecycle"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookingSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_booking_history_api_admin_v1_bookings__booking_id__history_get: {
         parameters: {
             query?: never;
@@ -1868,6 +1984,111 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["BookingHistoryResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_open_api_admin_v1_bookings__booking_id__open_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booking_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BookingLifecycle"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookingSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_undo_open_api_admin_v1_bookings__booking_id__undo_open_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booking_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BookingLifecycle"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookingSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_wait_api_admin_v1_bookings__booking_id__wait_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booking_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BookingLifecycle"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookingSummary"];
                 };
             };
             /** @description Validation Error */
