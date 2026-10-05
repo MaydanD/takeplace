@@ -1,7 +1,8 @@
 import { PublicBookingPage } from "@/pages/PublicBookingPage";
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes, useLocation } from "react-router-dom";
 
 import { RequireAdmin } from "@/components/RequireAdmin";
+import { RealtimeBridge } from "@/realtime/RealtimeBridge";
 import { AdminDashboardPage } from "@/pages/AdminDashboardPage";
 import { AdminLoginPage } from "@/pages/AdminLoginPage";
 import { HallsPage } from "@/pages/HallsPage";
@@ -11,6 +12,17 @@ import { SystemStatusPage } from "@/pages/SystemStatusPage";
 import { BookingBookPage } from "@/pages/BookingBookPage";
 
 /**
+ * Mount the realtime connection only inside the authenticated admin area, so
+ * the public page pays nothing and the login page never opens a stream.
+ */
+function AdminRealtime() {
+  const location = useLocation();
+  const isAdminArea =
+    location.pathname.startsWith("/admin") && location.pathname !== "/admin/login";
+  return isAdminArea ? <RealtimeBridge /> : null;
+}
+
+/**
  * Application routing.
  *
  * Stage 1 exposes the status page; Stage 2 adds the isolated admin area. The
@@ -18,43 +30,46 @@ import { BookingBookPage } from "@/pages/BookingBookPage";
  */
 export function App() {
   return (
-    <Routes>
-      <Route path="/b/:slug" element={<PublicBookingPage />} />
-      <Route path="/" element={<SystemStatusPage />} />
-      <Route path="/admin/login" element={<AdminLoginPage />} />
-      <Route
-        path="/admin/bookings"
-        element={
-          <RequireAdmin>
-            <BookingBookPage />
-          </RequireAdmin>
-        }
-      />
-      <Route
-        path="/admin"
-        element={
-          <RequireAdmin>
-            <AdminDashboardPage />
-          </RequireAdmin>
-        }
-      />
-      <Route
-        path="/admin/schedule"
-        element={
-          <RequireAdmin>
-            <SchedulePage />
-          </RequireAdmin>
-        }
-      />
-      <Route
-        path="/admin/halls"
-        element={
-          <RequireAdmin>
-            <HallsPage />
-          </RequireAdmin>
-        }
-      />
-      <Route path="*" element={<NotFoundPage />} />
-    </Routes>
+    <>
+      <AdminRealtime />
+      <Routes>
+        <Route path="/b/:slug" element={<PublicBookingPage />} />
+        <Route path="/" element={<SystemStatusPage />} />
+        <Route path="/admin/login" element={<AdminLoginPage />} />
+        <Route
+          path="/admin/bookings"
+          element={
+            <RequireAdmin>
+              <BookingBookPage />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin"
+          element={
+            <RequireAdmin>
+              <AdminDashboardPage />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/schedule"
+          element={
+            <RequireAdmin>
+              <SchedulePage />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/halls"
+          element={
+            <RequireAdmin>
+              <HallsPage />
+            </RequireAdmin>
+          }
+        />
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
+    </>
   );
 }

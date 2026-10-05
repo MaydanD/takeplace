@@ -20,6 +20,9 @@ def settings() -> Settings:
         idempotency_hmac_key="test-idempotency-key-0123456789",
         abuse_hmac_key="test-abuse-key-0123456789",
         vk_encryption_keys="1:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        # No database is reachable here; keep the LISTEN reconnect loop out of
+        # pure unit tests (integration tests run with the real listener).
+        realtime_listener_enabled=False,
     )
 
 

@@ -36,6 +36,7 @@ from app.api.errors import (
 )
 from app.db.models import Hall, Table
 from app.domain.layout import LayoutValidationError
+from app.realtime.events import RESYNC, publish
 from app.services.errors import (
     HallArchiveBlockedError,
     HallNotFoundError,
@@ -121,6 +122,7 @@ async def post_hall(
             canvas_height=payload.canvas_height,
             is_bookable=payload.is_bookable,
         )
+    await publish(session, venue_id=context.venue_id, event_type=RESYNC)
     await session.commit()
     return HallSummary.from_model(hall, table_count=0)
 
@@ -153,6 +155,7 @@ async def patch_hall(
     changes = payload.model_dump(exclude_unset=True)
     with _translating_errors():
         hall = await update_hall(session, context.venue_id, hall_id, changes=changes)
+    await publish(session, venue_id=context.venue_id, event_type=RESYNC)
     await session.commit()
     counts = await _table_counts(session, context.venue_id)
     return HallSummary.from_model(hall, table_count=counts.get(hall.id, 0))
@@ -169,6 +172,7 @@ async def post_archive_hall(
     """Archive a hall; blocked while it still has non-archived tables (§29.5)."""
     with _translating_errors():
         hall = await archive_hall(session, context.venue_id, hall_id)
+    await publish(session, venue_id=context.venue_id, event_type=RESYNC)
     await session.commit()
     return HallSummary.from_model(hall, table_count=0)
 
@@ -209,6 +213,7 @@ async def patch_table(
         table = await set_table_bookable(
             session, context.venue_id, table_id, is_bookable=payload.is_bookable
         )
+    await publish(session, venue_id=context.venue_id, event_type=RESYNC)
     await session.commit()
     return TableSummary.from_model(table)
 
@@ -224,5 +229,6 @@ async def post_archive_table(
     """Archive a table; the live/future-occupancy guard lands with Stage 5 (§29.3)."""
     with _translating_errors():
         table = await archive_table(session, context.venue_id, table_id)
+    await publish(session, venue_id=context.venue_id, event_type=RESYNC)
     await session.commit()
     return TableSummary.from_model(table)

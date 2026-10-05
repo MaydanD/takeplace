@@ -6,8 +6,9 @@ TypeScript + Vite, база данных — PostgreSQL.
 Реализованы **Stage 1 — Foundation** (monorepo, PostgreSQL с ролями и таймаутами,
 Alembic, health, security headers, CORS, OpenAPI → TypeScript, тесты, CI),
 **Stage 2 — Tenant + Auth + CLI**, **Stage 3 — Schedule + Business Day**,
-**Stage 4 — Halls + Tables + Read-only Canvas**, **Stage 5 — Booking Core**
-**Stage 6 — Public Booking** и **Stage 7 — Admin Booking Book**:
+**Stage 4 — Halls + Tables + Read-only Canvas**, **Stage 5 — Booking Core**,
+**Stage 6 — Public Booking**, **Stage 7 — Admin Booking Book**, **Stage 8 —
+Booking Lifecycle + Live State** и **Stage 9 — Realtime**:
 заведения (tenants), admin-аккаунт, server-side sessions, Argon2id, безопасные
 cookies, tenant isolation, операторский CLI, недельное расписание и business day,
 залы/столы и read-only схема, а также ядро бронирований — bookings со снимком
@@ -17,7 +18,9 @@ suite.
 Двойная бронь запрещена технически: истина — constraint PostgreSQL, не проверка
 в приложении. Публичная страница `/b/:slug` позволяет гостю выбрать зал, стол и
 интервал и создать ONLINE-бронь. Книга администратора — `/admin/bookings`.
-Полный lifecycle (WAIT/OPEN/CLOSE) — следующий этап; Stage 7 включает атомарный WALK_IN.
+Полный lifecycle (WAIT/OPEN/CLOSE), live-занятость и realtime между несколькими
+открытыми админками уже работают (§9–§27, §37); VK-outbox и визуальный editor —
+следующие этапы.
 
 ## Книга броней (Stage 7)
 
@@ -44,13 +47,46 @@ suite.
 - Миграция `20261004_0006`: минимальная `booking_live_tables`, tenant-safe FK
   с business date и уникальность table/business date. OPEN overlay используется
   public/admin create и availability; live capacity/archive защищены.
-- Полный lifecycle, пересадки, realtime, VK outbox и editor не добавлены.
+- Реaltime между открытыми админками добавлен в Stage 9; VK outbox и editor
+  остаются отдельными этапами.
 
 Проверки Stage 7: `tests/integration/test_booking_book.py`, `tests/test_walk_in.py`,
 `frontend/src/pages/BookingBookPage.test.tsx`. Запуск всей PostgreSQL suite:
 `docker compose exec -T api python -m scripts.run_local_tests -q`.
 Raw Uvicorn access logs выключены: structured middleware пишет путь без query
 string, чтобы поиск телефона не попадал в журнал. SQL bind parameters скрыты.
+
+## Realtime (Stage 9)
+
+- Сигнал realtime и сама мутация связаны транзакционно: `pg_notify` выполняется
+  в той же транзакции, что и изменение (§37.2). PostgreSQL доставляет уведомление
+  только после commit, поэтому rollback не создаёт ложных событий.
+- Payload минимальный и служит только сигналом для refetch:
+  `{"venue_id": …, "type": "booking.created" | "booking.updated" | "resync", "ids": […]}`.
+  Полные модели через `NOTIFY` не передаются; слишком длинный список ids
+  сворачивается в `resync` (§37.2).
+- Каждый API-процесс держит **отдельное** долгоживущее `LISTEN`-соединение вне
+  request-пула (raw `asyncpg`). При потере соединения слушатель переподключается
+  и рассылает всем SSE-клиентам `resync` (§37.3). Несколько API instances
+  поддерживаются архитектурно: обмен идёт только через PostgreSQL.
+- SSE endpoint `GET /api/admin/v1/stream` требует admin session; `venue_id` берётся
+  только из сессии, поэтому событие одного venue не может попасть клиенту другого.
+  Heartbeat — примерно каждые 20 секунд (`: heartbeat` comment, не вызывает
+  refetch), у соединения bounded queue: переполнение закрывает stream после
+  `resync` (§37.4). События отправляются как default `message`.
+- Frontend держит **один** `EventSource` на admin-сессию (ref-counted singleton) и
+  на каждый сигнал вызывает `invalidateQueries`; `booking.*` инвалидирует только
+  booking-представления, `resync`/неизвестный тип — весь venue-state. `open`
+  (включая reconnect) запускает полный resync — поэтому пропущенные события
+  не оставляют UI в stale-состоянии. Realtime не заменяет optimistic concurrency:
+  `expected_version`/`BOOKING_STALE` остаются арбитром.
+- Caddy: `reverse_proxy /api/* api:8000 { flush_interval -1 }` — SSE стримится без
+  буферизации ([`infra/caddy/Caddyfile`](infra/caddy/Caddyfile)). Schema миграция
+  не требуется: `alembic check` остаётся clean.
+
+Проверки Stage 9: `backend/tests/test_realtime.py`,
+`backend/tests/integration/test_realtime.py` (включая smoke с двумя admin-сессиями
+через реальный ASGI-сервер), `frontend/src/realtime/realtime.test.tsx`.
 
 Источник истины — [`PROJECT-SPEC-v1.3.3.md`](PROJECT-SPEC-v1.3.3.md).
 Краткий operational-конспект — [`IMPLEMENTATION-GUARDRAILS.md`](IMPLEMENTATION-GUARDRAILS.md).

@@ -67,6 +67,7 @@ from app.domain.booking import (
 )
 from app.domain.schedule import Shift, current_business_date, shift_containing
 from app.domain.timezone import load_timezone
+from app.realtime.events import BOOKING_CREATED, BOOKING_UPDATED, publish
 from app.security.tokens import hmac_sha256_hex
 from app.services.errors import (
     BookingConflictError,
@@ -777,6 +778,8 @@ async def _create_once(
             )
         )
         await session.flush()
+    # Transactional realtime signal: delivered only if this transaction commits.
+    await publish(session, venue_id=venue_id, event_type=BOOKING_CREATED, ids=[booking.id])
     return booking
 
 
@@ -1016,6 +1019,7 @@ async def _create_public_once(
         )
     )
     await session.flush()
+    await publish(session, venue_id=venue_id, event_type=BOOKING_CREATED, ids=[booking.id])
     return booking
 
 
@@ -1141,6 +1145,7 @@ async def _cancel_once(
         )
     )
     await session.flush()
+    await publish(session, venue_id=venue_id, event_type=BOOKING_UPDATED, ids=[booking.id])
     return booking
 
 
@@ -1345,6 +1350,12 @@ async def lifecycle_booking(
                     )
                 )
                 await session.flush()
+                await publish(
+                    session,
+                    venue_id=venue_id,
+                    event_type=BOOKING_UPDATED,
+                    ids=[booking_id],
+                )
             return await view_of(session, booking)
         except DBAPIError as exc:
             state = _sqlstate(exc)
@@ -1471,6 +1482,7 @@ async def _change_time_once(
         )
     )
     await session.flush()
+    await publish(session, venue_id=venue_id, event_type=BOOKING_UPDATED, ids=[booking.id])
     return booking
 
 
@@ -1611,6 +1623,12 @@ async def edit_booking_guest(
                     )
                 )
                 await session.flush()
+                await publish(
+                    session,
+                    venue_id=venue_id,
+                    event_type=BOOKING_UPDATED,
+                    ids=[booking_id],
+                )
             return await view_of(session, booking)
         except DBAPIError as exc:
             state = _sqlstate(exc)

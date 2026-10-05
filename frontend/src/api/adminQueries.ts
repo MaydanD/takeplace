@@ -7,6 +7,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { realtimeClient } from "@/realtime/client";
 import {
   deleteScheduleException,
   fetchBusinessDay,
@@ -73,6 +74,8 @@ function useSessionEndMutation(sessionEnd: () => Promise<unknown>) {
     onSuccess: () => {
       queryClient.setQueryData(adminKeys.me, null);
       queryClient.removeQueries({ queryKey: adminKeys.settings });
+      // Tear the realtime stream down with the session (§37.4).
+      realtimeClient.disconnect();
     },
   });
 }

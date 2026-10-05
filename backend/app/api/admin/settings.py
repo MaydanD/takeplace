@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends
 
 from app.api.admin.dependencies import AuthContextDep, SessionDep, require_trusted_origin
 from app.api.admin.schemas import SettingsUpdate, VenueSummary
+from app.realtime.events import RESYNC, publish
 from app.services.venues import update_venue_settings
 
 router = APIRouter(prefix="/settings", tags=["admin-settings"])
@@ -39,5 +40,6 @@ async def patch_settings(
     """
     changes = payload.model_dump(exclude_unset=True)
     venue = await update_venue_settings(session, context.venue_id, changes=changes)
+    await publish(session, venue_id=context.venue_id, event_type=RESYNC)
     await session.commit()
     return VenueSummary.from_model(venue)

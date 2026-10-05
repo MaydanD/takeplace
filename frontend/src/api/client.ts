@@ -16,7 +16,7 @@ export type ReadinessResponse = components["schemas"]["ReadinessResponse"];
  * API are served behind one Caddy origin). In development Vite proxies `/api`
  * and `/health` to the backend, so same-origin also works there.
  */
-const API_BASE_URL = import.meta.env.TAKEPLACE_API_BASE_URL ?? "";
+export const API_BASE_URL = import.meta.env.TAKEPLACE_API_BASE_URL ?? "";
 
 export class ApiError extends Error {
   readonly status: number;

@@ -15,6 +15,7 @@ from app.api.errors import ApiError, api_error_handler
 from app.db.session import dispose_engine, get_session_factory, init_engine
 from app.logging_config import configure_logging, get_logger
 from app.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
+from app.realtime import RealtimeListener, init_hub, reset_hub
 from app.security.limits import init_limiters, reset_limiters
 from app.security.passwords import init_password_hasher, reset_password_hasher
 from app.services.public_rate_limit import init_public_rate_limiters, reset_public_rate_limiters
@@ -54,6 +55,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         reset_monitor()
         monitor = init_monitor(get_session_factory(), horizon_days=settings.timezone_horizon_days)
         monitor_task = asyncio.create_task(monitor.run_forever())
+        # Realtime: one process-wide hub plus the dedicated LISTEN connection.
+        reset_hub()
+        hub = init_hub(queue_maxsize=settings.realtime_queue_maxsize)
+        listener = RealtimeListener(
+            settings.app_database_url,
+            hub,
+            enabled=settings.realtime_listener_enabled,
+        )
+        # Exposed for readiness/diagnostics and tests; not part of the API surface.
+        _app.state.realtime_listener = listener
+        await listener.start()
         logger.info(
             "application_startup",
             environment=settings.env.value,
@@ -62,6 +74,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            await listener.stop()
+            reset_hub()
             monitor_task.cancel()
             with suppress(asyncio.CancelledError):
                 await monitor_task

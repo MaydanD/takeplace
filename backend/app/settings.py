@@ -150,6 +150,17 @@ class Settings(BaseSettings):
     # unaffected by the value or rotation of ``ABUSE_HMAC_KEY``.
     request_ip_hmac_ttl_days: Annotated[int, Field(ge=1, le=365)] = 7
 
+    # --- realtime (PROJECT-SPEC §3.4, §37) ----------------------------------
+    # SSE heartbeat cadence. Comments only keep the connection warm; they must
+    # never make the frontend refetch, so the value is irrelevant to correctness.
+    # Production baseline is ~20 seconds (§37.4).
+    realtime_heartbeat_seconds: Annotated[float, Field(gt=0, le=600)] = 20.0
+    # Bounded per-connection queue; overflow closes the stream with a resync.
+    realtime_queue_maxsize: Annotated[int, Field(ge=1, le=10_000)] = 256
+    # The API process LISTENs on PostgreSQL unless explicitly disabled (tests
+    # without a database disable it so no reconnect loop runs).
+    realtime_listener_enabled: bool = True
+
     # --- secrets ------------------------------------------------------------
     idempotency_hmac_key: str = "change-me-idempotency-hmac-key"
     abuse_hmac_key: str = "change-me-abuse-hmac-key"

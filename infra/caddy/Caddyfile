@@ -1,0 +1,42 @@
+# =============================================================================
+# Takeplace — production Caddy configuration (PROJECT-SPEC §37.4, §47).
+#
+# Caddy terminates HTTPS, serves the built frontend as static files, and reverse
+# proxies the API. The admin realtime stream is Server-Sent Events, so the API
+# route proxies with `flush_interval -1`: Caddy forwards each event immediately
+# instead of buffering a response that never completes.
+#
+# `/health/*` and the ordinary `/api/*` responses keep default buffering-safe
+# behaviour; only the streaming route needs the flush override, but disabling
+# buffering for the whole API path is harmless and is what the spec calls for.
+#
+# Replace `{$TAKEPLACE_SITE_ADDRESS}` with the real site address (for example a
+# domain, which Caddy will provision a certificate for automatically).
+# =============================================================================
+
+{$TAKEPLACE_SITE_ADDRESS:localhost} {
+	encode zstd gzip
+
+	# Public + admin API, including `GET /api/admin/v1/stream` (SSE).
+	# `flush_interval -1` disables response buffering so events stream through.
+	reverse_proxy /api/* api:8000 {
+		flush_interval -1
+	}
+
+	# Health endpoints are never public entry points for PII/secrets and carry no
+	# stream; default proxying is fine.
+	reverse_proxy /health/* api:8000
+
+	# Baseline security headers (PROJECT-SPEC §39.6).
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		X-Frame-Options "DENY"
+		-Server
+	}
+
+	# Built frontend (static assets).
+	root * /srv
+	file_server
+}

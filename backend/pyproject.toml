@@ -83,6 +83,12 @@ module = ["app.db.models"]
 # SQLAlchemy declarative models rely on dynamic attribute assignment.
 disable_error_code = ["misc"]
 
+[[tool.mypy.overrides]]
+# asyncpg ships no ``py.typed`` marker; the realtime listener owns the only
+# direct import, and SQLAlchemy handles the request-path driver typing.
+module = ["asyncpg", "asyncpg.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

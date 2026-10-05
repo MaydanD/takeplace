@@ -481,6 +481,26 @@ export interface paths {
         patch: operations["patch_settings_api_admin_v1_settings_patch"];
         trace?: never;
     };
+    "/api/admin/v1/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Stream
+         * @description Open the admin realtime stream for the session's venue (§37.1).
+         */
+        get: operations["get_stream_api_admin_v1_stream_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/v1/system/status": {
         parameters: {
             query?: never;
@@ -2506,6 +2526,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_stream_api_admin_v1_stream_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Realtime refetch signals for the session's venue. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
                 };
             };
         };

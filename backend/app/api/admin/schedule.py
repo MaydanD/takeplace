@@ -39,6 +39,7 @@ from app.domain.schedule import (
     describe_business_day,
 )
 from app.domain.timezone import load_timezone
+from app.realtime.events import RESYNC, publish
 from app.services.errors import ScheduleChangeRequiresConfirmationError, ScheduleConflictError
 from app.services.schedule import (
     WEEKDAYS,
@@ -129,6 +130,7 @@ async def put_weekly_schedule(
     tz = load_timezone(context.venue.timezone)
     with _translating_schedule_errors():
         await replace_weekly_schedule(session, context.venue_id, rules, tz, confirm=confirm)
+    await publish(session, venue_id=context.venue_id, event_type=RESYNC)
     await session.commit()
     stored = await get_weekly_rules(session, context.venue_id)
     return _weekly_response(stored, context.venue.timezone)
@@ -177,6 +179,7 @@ async def put_exception(
         row = await upsert_exception(
             session, context.venue_id, business_date, rule, tz, confirm=confirm
         )
+    await publish(session, venue_id=context.venue_id, event_type=RESYNC)
     await session.commit()
     return ScheduleExceptionEntry(
         date=row.date,
@@ -205,6 +208,7 @@ async def remove_exception(
         )
     if not removed:
         raise not_found("SCHEDULE_EXCEPTION_NOT_FOUND", "no exception exists for that date")
+    await publish(session, venue_id=context.venue_id, event_type=RESYNC)
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

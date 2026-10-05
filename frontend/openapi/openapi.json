@@ -3749,6 +3749,24 @@
         ]
       }
     },
+    "/api/admin/v1/stream": {
+      "get": {
+        "description": "Open the admin realtime stream for the session's venue (§37.1).",
+        "operationId": "get_stream_api_admin_v1_stream_get",
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {}
+            },
+            "description": "Realtime refetch signals for the session's venue."
+          }
+        },
+        "summary": "Get Stream",
+        "tags": [
+          "admin-realtime"
+        ]
+      }
+    },
     "/api/admin/v1/system/status": {
       "get": {
         "operationId": "system_status_api_admin_v1_system_status_get",
