@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, cast
 
-from sqlalchemy import CursorResult, delete, select
+from sqlalchemy import CursorResult, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import AdminAccount, AdminSession, Venue
@@ -104,6 +104,34 @@ async def resolve_session(
         db_session.last_seen_at = now
 
     return AuthContext(session=db_session, admin=admin, venue=venue)
+
+
+async def session_validity(session: AsyncSession, raw_token: str) -> int | None:
+    """Cheap, read-only validity probe for long-lived connections (§37.4).
+
+    Unlike :func:`resolve_session` this never refreshes ``last_seen_at`` and never
+    deletes rows: the realtime stream re-runs it on a bounded cadence, so it must
+    stay a single indexed lookup that cannot write. It returns the session's
+    ``venue_id`` while the session is live and its admin and venue are active,
+    otherwise ``None`` — the same revocation signals an ordinary request would
+    observe (logout, logout-all, disabled admin, disabled venue, expiry).
+    """
+    if not raw_token:
+        return None
+    token_hash = hash_session_token(raw_token)
+    result = await session.execute(
+        select(AdminSession.venue_id)
+        .join(AdminAccount, AdminAccount.venue_id == AdminSession.venue_id)
+        .join(Venue, Venue.id == AdminSession.venue_id)
+        .where(
+            AdminSession.token_hash == token_hash,
+            AdminSession.expires_at > func.clock_timestamp(),
+            AdminAccount.is_active.is_(True),
+            Venue.is_active.is_(True),
+        )
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
 
 
 async def delete_session(session: AsyncSession, session_id: int) -> None:

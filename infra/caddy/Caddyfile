@@ -36,7 +36,13 @@
 		-Server
 	}
 
-	# Built frontend (static assets).
+	# Built frontend (static assets) with a SPA fallback: real files are served
+	# as files, and any other path (for example a deep React Router route like
+	# `/admin/bookings` opened directly or after an F5) returns `index.html` so
+	# the client-side router can take over. `/api/*` is matched by the
+	# `reverse_proxy` above and never reaches this handler, so it can never fall
+	# back to `index.html`.
 	root * /srv
+	try_files {path} /index.html
 	file_server
 }

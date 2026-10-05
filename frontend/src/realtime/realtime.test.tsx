@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { realtimeClient } from "@/realtime/client";
+import { RECONNECT_DELAY_MS, realtimeClient } from "@/realtime/client";
 import {
   bookingRealtimeKeys,
   realtimeInvalidationKeys,
@@ -60,10 +60,14 @@ function spyClient() {
   return { queryClient, spy };
 }
 
+function sourceAt(index: number): MockEventSource {
+  const instance = MockEventSource.instances[index];
+  if (!instance) throw new Error(`no EventSource at index ${index}`);
+  return instance;
+}
+
 function source(): MockEventSource {
-  const [first] = MockEventSource.instances;
-  if (!first) throw new Error("no EventSource was created");
-  return first;
+  return sourceAt(0);
 }
 
 beforeEach(() => {
@@ -172,14 +176,88 @@ describe("useRealtimeSync", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it("gives up after repeated errors and asks for a resync", () => {
+  it("gives up the fast path after repeated errors and asks for a resync", () => {
+    vi.useFakeTimers();
     const { queryClient, spy } = spyClient();
     renderHook(() => useRealtimeSync(true), { wrapper: wrapper(queryClient) });
     spy.mockClear();
     act(() => {
       for (let i = 0; i < 5; i += 1) source().fail();
     });
+    // The doomed EventSource is closed, but the client is only backoff-waiting,
+    // not permanently dead: a slowed reconnect is scheduled while subscribed.
     expect(realtimeClient.isConnected).toBe(false);
+    expect(realtimeClient.isReconnecting).toBe(true);
     expect(spy.mock.calls.map((call) => call[0]?.queryKey)).toContainEqual(["admin"]);
+  });
+
+  // F-01 regression: a long backend/network outage must never kill realtime for
+  // good while a subscriber is still mounted. After the fast retries are
+  // exhausted the client slows down and keeps trying until the backend returns,
+  // with no extra `acquire()` and no component remount.
+  it("reconnects on its own after a long outage and resyncs on reopen", () => {
+    vi.useFakeTimers();
+    const { queryClient, spy } = spyClient();
+    renderHook(() => useRealtimeSync(true), { wrapper: wrapper(queryClient) });
+    const first = source();
+    act(() => first.open());
+    spy.mockClear();
+
+    // Five consecutive errors while the backend is down -> slowed reconnect.
+    act(() => {
+      for (let i = 0; i < 5; i += 1) first.fail();
+    });
+    expect(first.closed).toBe(true);
+    expect(realtimeClient.isConnected).toBe(false);
+    expect(realtimeClient.isReconnecting).toBe(true);
+
+    // No new EventSource until the slowed backoff elapses.
+    act(() => {
+      vi.advanceTimersByTime(RECONNECT_DELAY_MS - 1);
+    });
+    expect(MockEventSource.instances).toHaveLength(1);
+    expect(realtimeClient.isReconnecting).toBe(true);
+
+    // Backoff elapses -> the client reconnects automatically.
+    act(() => {
+      vi.advanceTimersByTime(2);
+    });
+    expect(MockEventSource.instances).toHaveLength(2);
+    expect(realtimeClient.isConnected).toBe(true);
+    expect(realtimeClient.isReconnecting).toBe(false);
+
+    // Reopening resyncs every admin query exactly like a first connect.
+    const second = sourceAt(1);
+    act(() => second.open());
+    expect(spy.mock.calls.map((call) => call[0]?.queryKey)).toContainEqual(["admin"]);
+
+    // A period of continued failure keeps retrying without piling up sources.
+    spy.mockClear();
+    act(() => {
+      for (let i = 0; i < 5; i += 1) second.fail();
+    });
+    act(() => {
+      vi.advanceTimersByTime(RECONNECT_DELAY_MS + 1);
+    });
+    expect(MockEventSource.instances).toHaveLength(3);
+  });
+
+  it("cancels the pending reconnect when the last subscriber releases", () => {
+    vi.useFakeTimers();
+    const { queryClient } = spyClient();
+    const { unmount } = renderHook(() => useRealtimeSync(true), { wrapper: wrapper(queryClient) });
+    act(() => {
+      for (let i = 0; i < 5; i += 1) source().fail();
+    });
+    expect(realtimeClient.isReconnecting).toBe(true);
+
+    unmount();
+    expect(realtimeClient.isReconnecting).toBe(false);
+
+    // Even after the backoff would have elapsed, nothing new is created.
+    act(() => {
+      vi.advanceTimersByTime(RECONNECT_DELAY_MS * 2);
+    });
+    expect(MockEventSource.instances).toHaveLength(1);
   });
 });

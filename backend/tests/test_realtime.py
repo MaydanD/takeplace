@@ -8,6 +8,7 @@ endpoint are exercised by ``tests/integration/test_realtime.py``.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 
 import pytest
@@ -52,6 +53,7 @@ def _settings(**overrides: object) -> Settings:
         "database_url": "postgresql+asyncpg://u:p@127.0.0.1:1/x",
         "realtime_listener_enabled": False,
         "realtime_heartbeat_seconds": 5.0,
+        "realtime_session_check_seconds": 30.0,
     }
     base.update(overrides)
     return Settings(**base)  # type: ignore[arg-type]
@@ -201,11 +203,59 @@ async def test_stream_closes_when_session_becomes_invalid(monkeypatch) -> None:
         _FakeRequest(),
         venue_id=1,
         raw_token="t",
-        settings=_settings(realtime_heartbeat_seconds=0.01),
+        settings=_settings(realtime_heartbeat_seconds=5.0, realtime_session_check_seconds=0.01),
     )
     assert await anext(agen) == b": connected\n\n"
     with pytest.raises(StopAsyncIteration):
         await anext(agen)
+
+
+async def test_continuous_events_do_not_postpone_session_validation(monkeypatch) -> None:
+    """F-02 regression: a busy stream must still revalidate on its cadence.
+
+    Events arrive far more often than the security interval, so an
+    idle-timeout-only check would never run and a revoked session would keep
+    receiving events forever. Validation is deadline-based and must fire anyway.
+    """
+    calls = {"n": 0}
+
+    async def _invalid(*_args, **_kwargs) -> bool:
+        calls["n"] += 1
+        return False
+
+    monkeypatch.setattr(stream_module, "_session_still_valid", _invalid)
+    agen = sse_event_stream(
+        _FakeRequest(),
+        venue_id=1,
+        raw_token="t",
+        # Heartbeat is deliberately long: only the security cadence can close it.
+        settings=_settings(realtime_heartbeat_seconds=100.0, realtime_session_check_seconds=0.05),
+    )
+    assert await anext(agen) == b": connected\n\n"
+
+    stop = asyncio.Event()
+
+    async def _pump() -> None:
+        while not stop.is_set():
+            get_hub().publish(RealtimeEvent(venue_id=1, type=BOOKING_UPDATED, ids=(1,)))
+            await asyncio.sleep(0.002)
+
+    pump = asyncio.create_task(_pump())
+    frames: list[bytes] = []
+    try:
+        with pytest.raises(StopAsyncIteration):
+            while True:
+                frames.append(await anext(agen))
+    finally:
+        stop.set()
+        await pump
+        await agen.aclose()
+
+    # Traffic was genuinely flowing...
+    assert any(b"booking.updated" in frame for frame in frames)
+    # ...yet the stream still closed after the security interval elapsed.
+    assert calls["n"] >= 1
+    assert get_hub().subscriber_count() == 0
 
 
 async def test_stream_overflow_emits_resync_then_stops(monkeypatch) -> None:

@@ -14,9 +14,16 @@ The stream emits:
 
 Reliability model (§37.4): the connection's queue is bounded and an overflow
 emits a final ``resync`` then closes the stream; the client reconnects and
-resyncs through the ordinary HTTP API. The session is re-checked on every
-heartbeat, so an expired or revoked session closes the stream instead of
-streaming to a stale identity.
+resyncs through the ordinary HTTP API.
+
+Session lifecycle (audit F-02/F-03): the session is revalidated on a fixed
+*time* cadence driven by a monotonic deadline, not by stream idleness. A venue
+with a continuous stream of booking events therefore cannot postpone validation
+indefinitely: a revoked session (logout, logout-all, disabled admin or venue,
+expiry) closes the stream within ``realtime_session_check_seconds`` no matter how
+busy the stream is. Validation is a single read-only lookup that never refreshes
+``last_seen_at`` (``session_validity``), so it does not write on every check, and
+no in-memory cache lets a revoked session outlive that bound.
 """
 
 from __future__ import annotations
@@ -33,7 +40,7 @@ from app.db.session import session_scope
 from app.realtime.events import RESYNC, RealtimeEvent
 from app.realtime.hub import get_hub
 from app.security.cookies import session_cookie_name
-from app.services.auth import resolve_session
+from app.services.auth import session_validity
 from app.settings import Settings
 
 logger = structlog.get_logger("takeplace.realtime")
@@ -48,6 +55,8 @@ _SSE_HEADERS = {
     "X-Accel-Buffering": "no",
 }
 
+_HEARTBEAT = b": heartbeat\n\n"
+
 
 def _encode_event(event: RealtimeEvent) -> bytes:
     """Serialise one event as a default SSE ``message``."""
@@ -55,17 +64,18 @@ def _encode_event(event: RealtimeEvent) -> bytes:
 
 
 async def _session_still_valid(raw_token: str, venue_id: int, settings: Settings) -> bool:
-    """Re-resolve the session on a live stream; failures close the stream."""
+    """Lightweight revalidation of a live stream's session.
+
+    Read-only and never touches ``last_seen_at`` (``session_validity``), so it is
+    safe to run on the security cadence without turning realtime into extra
+    write traffic. Any failure fails *closed*: a broken check must never leave a
+    stream running for a possibly-revoked identity.
+    """
     if not raw_token:
         return False
     try:
         async with session_scope() as session:
-            context = await resolve_session(
-                session,
-                raw_token,
-                last_seen_refresh_seconds=settings.session_last_seen_refresh_seconds,
-            )
-            return context is not None and context.venue_id == venue_id
+            return await session_validity(session, raw_token) == venue_id
     except Exception as exc:  # noqa: BLE001 - a broken check must not stream forever
         logger.warning("realtime_session_check_failed", error=str(exc))
         return False
@@ -86,19 +96,38 @@ async def sse_event_stream(
     hub = get_hub()
     subscription = hub.subscribe(venue_id)
     heartbeat = settings.realtime_heartbeat_seconds
+    check_interval = settings.realtime_session_check_seconds
+    loop = asyncio.get_running_loop()
     try:
         # Flush headers immediately so the browser fires ``open`` (and resyncs)
         # without waiting for the first real event.
         yield b": connected\n\n"
+        # Deadlines are monotonic: continuous event traffic can never postpone
+        # them, unlike a per-wait timeout that restarts on every event.
+        next_check = loop.time() + check_interval
+        next_heartbeat = loop.time() + heartbeat
         while True:
             if await request.is_disconnected():
                 break
+            now = loop.time()
+            timeout = max(0.0, min(next_check, next_heartbeat) - now)
+            timed_out = False
+            event: RealtimeEvent | None = None
             try:
-                event = await asyncio.wait_for(subscription.queue.get(), timeout=heartbeat)
+                event = await asyncio.wait_for(subscription.queue.get(), timeout=timeout)
             except TimeoutError:
+                timed_out = True
+            now = loop.time()
+            # Security: validate on the fixed cadence before delivering anything,
+            # whether the queue was idle or delivered a burst of events.
+            if now >= next_check:
                 if not await _session_still_valid(raw_token, venue_id, settings):
                     break
-                yield b": heartbeat\n\n"
+                next_check = now + check_interval
+            if timed_out:
+                if now >= next_heartbeat:
+                    yield _HEARTBEAT
+                    next_heartbeat = now + heartbeat
                 continue
             if event is None:
                 # Bounded-queue overflow: ask the client to resync, then close so
@@ -107,6 +136,8 @@ async def sse_event_stream(
                 break
             yield _encode_event(event)
     finally:
+        # Cleanup is guaranteed regardless of how the loop exits: disconnect,
+        # revocation, overflow or cancellation.
         hub.unsubscribe(subscription)
 
 

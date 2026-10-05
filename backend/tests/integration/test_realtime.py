@@ -49,11 +49,13 @@ from app.settings import Settings, get_settings
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from tests.integration.server import running_api_server
 from tests.integration.support import (
     APP_URL,
     BOOKINGS_URL,
     ORIGIN,
     PASSWORD,
+    TEST_HMAC_KEYS,
     create_venue,
     import_layout_cli,
     login,
@@ -292,6 +294,8 @@ class _SSE:
         self._response = self._manager.__enter__()
         assert self._response.status_code == 200, self._response.read()
         self.lines: queue.Queue[str] = queue.Queue()
+        #: Set once the server ends the stream (or the reader errors out).
+        self.closed = threading.Event()
         self._thread = threading.Thread(target=self._read, daemon=True)
         self._thread.start()
 
@@ -300,6 +304,11 @@ class _SSE:
         with contextlib.suppress(Exception):
             for line in self._response.iter_lines():
                 self.lines.put(line)
+        self.closed.set()
+
+    def wait_closed(self, timeout: float = 20.0) -> bool:
+        """Whether the server closed the stream within ``timeout`` seconds."""
+        return self.closed.wait(timeout=timeout)
 
     def wait_for(self, needle: str, timeout: float = 20.0) -> str:
         deadline = time.monotonic() + timeout
@@ -473,3 +482,240 @@ def test_two_admin_sessions_realtime_smoke(tmp_path: Path) -> None:
         finally:
             client_a.close()
             client_b.close()
+
+
+# --- session revocation under continuous traffic (F-02 / F-03) ---------------
+
+
+def test_revoked_session_closes_busy_stream_within_bound(tmp_path: Path) -> None:
+    """A heavily-trafficked stream still revalidates and closes on revocation.
+
+    Booking events are generated far more often than the security interval, so a
+    check that only ran when the queue was idle would never fire and a revoked
+    session would keep receiving realtime forever (audit F-02). The deadline-based
+    validation must close the stream within the bound despite the traffic, and no
+    further domain events may be delivered after revocation.
+    """
+    settings = make_settings(
+        session_cookie_secure=False,
+        realtime_heartbeat_seconds=2.0,
+        # Small bound so the test observes the close quickly.
+        realtime_session_check_seconds=2.0,
+    )
+    with _running_server(settings) as base:
+        login_name = unique("admin")
+        client_b, tables = _setup_venue(base, login_name, tmp_path)
+        client_a = _httpx_login(base, login_name)
+        stream = _SSE(client_a)
+        stop = threading.Event()
+        pump: threading.Thread | None = None
+        try:
+            assert stream.wait_for(": connected") == ": connected"
+            now = datetime.now(MSK)
+            start = ceil_to_5_minutes(now) + timedelta(hours=1)
+            created = client_b.post(
+                f"{ADMIN}/bookings",
+                json={
+                    "starts_at": start.isoformat(),
+                    "ends_at": (start + timedelta(hours=1)).isoformat(),
+                    "table_ids": [tables[0]["id"]],
+                    "party_size": 2,
+                    "source": "PHONE",
+                    "guest_name": "Busy",
+                    "guest_phone_raw": "+79990000000",
+                },
+                headers=_headers(**{"Idempotency-Key": str(uuid.uuid4())}),
+            )
+            assert created.status_code == 201, created.text
+            booking = created.json()
+            version = int(booking["version"])
+
+            def _pump() -> None:
+                """Keep the stream continuously busy with real booking updates."""
+                nonlocal version
+                toggle = 3
+                while not stop.is_set():
+                    try:
+                        response = client_b.patch(
+                            f"{ADMIN}/bookings/{booking['id']}",
+                            json={"expected_version": version, "party_size": toggle},
+                            headers=_headers(),
+                        )
+                    except (httpx.HTTPError, RuntimeError):
+                        # The harness may be tearing down; this thread is only
+                        # background traffic and must not surface an exception.
+                        return
+                    if response.status_code == 200:
+                        version = int(response.json()["version"])
+                        toggle = 2 if toggle == 3 else 3
+                    time.sleep(0.2)
+
+            pump = threading.Thread(target=_pump, daemon=True)
+            pump.start()
+            # The stream is genuinely receiving events before revocation.
+            stream.wait_for('"type":"booking.updated"', timeout=20)
+
+            # Revoke only the watching session; the mutating session keeps going.
+            logout = client_a.post(f"{ADMIN}/auth/logout", headers=_headers())
+            assert logout.status_code == 200, logout.text
+
+            # Despite continuous traffic, the stream closes within the bound.
+            assert stream.wait_closed(timeout=15), "stream stayed open after revocation"
+        finally:
+            stop.set()
+            if pump is not None:
+                pump.join(timeout=5)
+            stream.close()
+            client_a.close()
+            client_b.close()
+
+
+# --- true multi-process delivery over PostgreSQL NOTIFY ---------------------
+#
+# These tests launch real, independent ``uvicorn`` subprocesses. Each has its
+# own ``RealtimeHub`` and its own dedicated PostgreSQL ``LISTEN`` connection, so
+# an event can only cross between them through PostgreSQL — never through shared
+# in-process state. This is the Stage 9 multi-instance guarantee.
+
+
+def _server_env() -> dict[str, str]:
+    """Environment for an out-of-process API instance bound to the test DB."""
+    assert APP_URL
+    return {
+        "TAKEPLACE_ENV": "development",
+        "TAKEPLACE_LOG_LEVEL": "WARNING",
+        "TAKEPLACE_DATABASE_URL": APP_URL,
+        "TAKEPLACE_CORS_ORIGINS": ORIGIN,
+        # Plain HTTP in tests: allow the non-``__Host-`` cookie so httpx sends it.
+        "TAKEPLACE_SESSION_COOKIE_SECURE": "false",
+        "TAKEPLACE_REALTIME_LISTENER_ENABLED": "true",
+        "TAKEPLACE_REALTIME_HEARTBEAT_SECONDS": "5",
+        "TAKEPLACE_REALTIME_SESSION_CHECK_SECONDS": "5",
+        **TEST_HMAC_KEYS,
+    }
+
+
+def _lookup_venue_id(slug: str) -> int:
+    async def _query() -> int:
+        assert APP_URL
+        connection = await asyncpg.connect(asyncpg_dsn(APP_URL))
+        try:
+            value = await connection.fetchval("SELECT id FROM venues WHERE slug = $1", slug)
+        finally:
+            await connection.close()
+        assert value is not None, f"venue {slug!r} not found"
+        return int(value)
+
+    return asyncio.run(_query())
+
+
+def _notify_from_test_process(venue_id: int, event_type: str) -> None:
+    """Send one PostgreSQL NOTIFY from the *test* process (a third instance)."""
+
+    async def _send() -> None:
+        assert APP_URL
+        connection = await asyncpg.connect(asyncpg_dsn(APP_URL))
+        try:
+            payload = json.dumps({"venue_id": venue_id, "type": event_type}, separators=(",", ":"))
+            await connection.execute("SELECT pg_notify($1, $2)", CHANNEL, payload)
+        finally:
+            await connection.close()
+
+    asyncio.run(_send())
+
+
+def _delete_venue_by_slug(slug: str) -> None:
+    """Best-effort cleanup; every venue FK is ``ON DELETE CASCADE``."""
+
+    async def _delete() -> None:
+        assert APP_URL
+        connection = await asyncpg.connect(asyncpg_dsn(APP_URL))
+        try:
+            await connection.execute("DELETE FROM venues WHERE slug = $1", slug)
+        finally:
+            await connection.close()
+
+    with contextlib.suppress(Exception):
+        asyncio.run(_delete())
+
+
+def test_two_api_instances_deliver_notification_via_postgres(tmp_path: Path) -> None:
+    """A booking committed on API instance A reaches SSE on API instance B.
+
+    Both instances run as separate OS processes with their own hubs and LISTEN
+    connections, so the only path from A's commit to B's stream is
+    PostgreSQL ``NOTIFY``/``LISTEN``. The warm-up NOTIFY (sent from the test
+    process itself) deterministically proves B's listener is attached before the
+    real mutation, so the assertion cannot pass merely because of timing luck.
+    """
+    assert APP_URL
+    login_name, slug = unique("admin"), unique("venue")
+    assert create_venue(slug, login_name).returncode == 0
+    layout_path = tmp_path / "layout.json"
+    layout_path.write_text(json.dumps(_layout(capacity=4, tables=3)), encoding="utf-8")
+    assert import_layout_cli(slug, layout_path).returncode == 0
+    venue_id = _lookup_venue_id(slug)
+
+    env = _server_env()
+    try:
+        # Two independent API processes on OS-assigned ports.
+        with running_api_server(env) as server_b, running_api_server(env) as server_a:
+            assert server_a.port != server_b.port
+            client_a = _httpx_login(server_a.base_url, login_name)
+            try:
+                # Open a shift around 'now' through instance A.
+                now = datetime.now(MSK)
+                shift_start = ceil_to_5_minutes(now) - timedelta(hours=1)
+                shift_end = shift_start + timedelta(hours=6)
+                schedule = client_a.put(
+                    f"{ADMIN}/schedule/exceptions/{shift_start.date().isoformat()}",
+                    json={
+                        "is_closed": False,
+                        "open_time": shift_start.strftime("%H:%M"),
+                        "close_time": shift_end.strftime("%H:%M"),
+                    },
+                    headers=_headers(),
+                )
+                assert schedule.status_code == 200, schedule.text
+                tables = client_a.get(f"{ADMIN}/tables").json()["tables"]
+
+                # A separate session on instance B watches the stream.
+                client_b = _httpx_login(server_b.base_url, login_name)
+                stream = _SSE(client_b)
+                try:
+                    assert stream.wait_for(": connected") == ": connected"
+
+                    # Warm-up: B's own listener+hub must forward a NOTIFY emitted
+                    # by yet another connection (the test process).
+                    _notify_from_test_process(venue_id, "resync")
+                    resync = stream.wait_for('"type":"resync"', timeout=15)
+                    assert f'"venue_id":{venue_id}' in resync
+
+                    # Real mutation through instance A: commit -> NOTIFY -> B's
+                    # listener -> B's hub -> B's SSE client.
+                    start = ceil_to_5_minutes(datetime.now(MSK)) + timedelta(hours=1)
+                    created = client_a.post(
+                        f"{ADMIN}/bookings",
+                        json={
+                            "starts_at": start.isoformat(),
+                            "ends_at": (start + timedelta(hours=1)).isoformat(),
+                            "table_ids": [tables[0]["id"]],
+                            "party_size": 2,
+                            "source": "PHONE",
+                            "guest_name": "Cross-process",
+                            "guest_phone_raw": "+79990000000",
+                        },
+                        headers=_headers(**{"Idempotency-Key": str(uuid.uuid4())}),
+                    )
+                    assert created.status_code == 201, created.text
+                    booking = created.json()
+                    line = stream.wait_for('"type":"booking.created"', timeout=20)
+                    assert f'"venue_id":{venue_id}' in line
+                    assert f'"ids":[{booking["id"]}]' in line
+                finally:
+                    stream.close()
+                    client_b.close()
+            finally:
+                client_a.close()
+    finally:
+        _delete_venue_by_slug(slug)

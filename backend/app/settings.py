@@ -160,6 +160,12 @@ class Settings(BaseSettings):
     # The API process LISTENs on PostgreSQL unless explicitly disabled (tests
     # without a database disable it so no reconnect loop runs).
     realtime_listener_enabled: bool = True
+    # Upper bound on how long a revoked/expired session may keep receiving
+    # realtime after revocation (§37.4). The SSE stream revalidates the session
+    # on this fixed cadence *independently* of stream activity, so a busy venue
+    # with continuous events cannot push validation out (audit F-02/F-03). It is
+    # a lightweight, read-only check that never refreshes ``last_seen_at``.
+    realtime_session_check_seconds: Annotated[float, Field(gt=0, le=600)] = 30.0
 
     # --- secrets ------------------------------------------------------------
     idempotency_hmac_key: str = "change-me-idempotency-hmac-key"
