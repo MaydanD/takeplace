@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from app.security.cookies import SESSION_COOKIE_NAME
@@ -563,3 +564,332 @@ def test_hall_and_table_endpoints_are_tenant_isolated(
     # A is untouched: its hall still exists and still holds its table.
     detail = api_client.get(f"{HALLS_URL}/{hall_a}", headers=cookie_header(token_a)).json()
     assert [t["id"] for t in detail["tables"]] == [table_a]
+
+
+LS_URL = f"{HALLS_URL}/{{hall_id}}/layout"
+
+
+def _ls_payload(detail: Any, **over: object) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "expected_revision": detail["layout_revision"],
+        "canvas_width": detail["canvas_width"],
+        "canvas_height": detail["canvas_height"],
+        "tables": [
+            {
+                "id": t["id"],
+                "number": t["number"],
+                "capacity": t["capacity"],
+                "shape": t["shape"],
+                "x": t["x"],
+                "y": t["y"],
+                "width": t["width"],
+                "height": t["height"],
+                "rotation": t["rotation"],
+                "z_index": t["z_index"],
+            }
+            for t in detail["tables"]
+        ],
+        "static_elements": detail["static_elements"],
+    }
+    body.update(over)
+    return body
+
+
+def _ls_put(client: TestClient, token: str, hall_id: int, body: dict[str, Any]) -> Any:
+    return client.put(
+        LS_URL.format(hall_id=hall_id),
+        json=body,
+        headers={**cookie_header(token), "Origin": ORIGIN},
+    )
+
+
+def test_ls_moves_table_and_bumps_revision(api_client: TestClient, tmp_path: Path) -> None:
+    slug, _login_name, token = _new_venue(api_client)
+    assert (
+        import_layout_cli(slug, _write_layout(tmp_path, _one_table_layout("Зал"))).returncode == 0
+    )
+    hall_id = _hall_id(api_client, token, "Зал")
+    detail = api_client.get(f"{HALLS_URL}/{hall_id}", headers=cookie_header(token)).json()
+    body = _ls_payload(detail)
+    body["tables"][0]["x"] = 300
+    saved = _ls_put(api_client, token, hall_id, body)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["layout_revision"] == 2
+    assert saved.json()["tables"][0]["x"] == 300
+
+
+def test_ls_noop_keeps_revision(api_client: TestClient, tmp_path: Path) -> None:
+    slug, _login_name, token = _new_venue(api_client)
+    assert (
+        import_layout_cli(slug, _write_layout(tmp_path, _one_table_layout("Зал"))).returncode == 0
+    )
+    hall_id = _hall_id(api_client, token, "Зал")
+    detail = api_client.get(f"{HALLS_URL}/{hall_id}", headers=cookie_header(token)).json()
+    saved = _ls_put(api_client, token, hall_id, _ls_payload(detail))
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["layout_revision"] == 1
+
+
+def test_ls_creates_and_archives(api_client: TestClient, tmp_path: Path) -> None:
+    slug, _login_name, token = _new_venue(api_client)
+    assert (
+        import_layout_cli(slug, _write_layout(tmp_path, _one_table_layout("Зал"))).returncode == 0
+    )
+    hall_id = _hall_id(api_client, token, "Зал")
+    detail = api_client.get(f"{HALLS_URL}/{hall_id}", headers=cookie_header(token)).json()
+    body = _ls_payload(
+        detail,
+        tables=[
+            {
+                "number": "2",
+                "capacity": 2,
+                "shape": "circle",
+                "x": 50,
+                "y": 50,
+                "width": 60,
+                "height": 60,
+                "rotation": 0,
+                "z_index": 0,
+            }
+        ],
+    )
+    saved = _ls_put(api_client, token, hall_id, body)
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["layout_revision"] == 2
+    assert [t["number"] for t in saved.json()["tables"]] == ["2"]
+    archived = api_client.get(
+        TABLES_URL,
+        params={"include_archived": True, "hall_id": hall_id},
+        headers=cookie_header(token),
+    ).json()["tables"]
+    assert {t["number"] for t in archived} == {"1", "2"}
+    assert next(t for t in archived if t["number"] == "1")["archived_at"] is not None
+
+
+def test_ls_rejects_stale(api_client: TestClient, tmp_path: Path) -> None:
+    slug, _login_name, token = _new_venue(api_client)
+    assert (
+        import_layout_cli(slug, _write_layout(tmp_path, _one_table_layout("Зал"))).returncode == 0
+    )
+    hall_id = _hall_id(api_client, token, "Зал")
+    detail = api_client.get(f"{HALLS_URL}/{hall_id}", headers=cookie_header(token)).json()
+    first = _ls_payload(detail)
+    first["tables"][0]["x"] = 111
+    assert _ls_put(api_client, token, hall_id, first).status_code == 200
+    stale = _ls_payload(detail)
+    stale["tables"][0]["x"] = 222
+    conflict = _ls_put(api_client, token, hall_id, stale)
+    assert conflict.status_code == 409
+    assert conflict.json()["code"] == "LAYOUT_STALE"
+    current = api_client.get(f"{HALLS_URL}/{hall_id}", headers=cookie_header(token)).json()
+    assert current["layout_revision"] == 2
+    assert current["tables"][0]["x"] == 111
+
+
+def test_ls_validates_geometry(api_client: TestClient, tmp_path: Path) -> None:
+    slug, _login_name, token = _new_venue(api_client)
+    assert (
+        import_layout_cli(slug, _write_layout(tmp_path, _one_table_layout("Зал"))).returncode == 0
+    )
+    hall_id = _hall_id(api_client, token, "Зал")
+    detail = api_client.get(f"{HALLS_URL}/{hall_id}", headers=cookie_header(token)).json()
+    body = _ls_payload(detail)
+    body["tables"] = [dict(body["tables"][0]), dict(body["tables"][0])]
+    rejected = _ls_put(api_client, token, hall_id, body)
+    assert rejected.status_code == 422
+    assert rejected.json()["code"] == "LAYOUT_INVALID"
+
+
+def test_ls_is_tenant_isolated(api_client: TestClient, tmp_path: Path) -> None:
+    slug_a, _login_a, token_a = _new_venue(api_client)
+    _slug_b, _login_b, token_b = _new_venue(api_client)
+    assert (
+        import_layout_cli(slug_a, _write_layout(tmp_path, _one_table_layout("Зал"))).returncode == 0
+    )
+    hall_a = _hall_id(api_client, token_a, "Зал")
+    detail = api_client.get(f"{HALLS_URL}/{hall_a}", headers=cookie_header(token_a)).json()
+    assert _ls_put(api_client, token_b, hall_a, _ls_payload(detail)).status_code == 404
+
+
+def test_ls_rejects_untrusted_origin(api_client: TestClient, tmp_path: Path) -> None:
+    slug, _login_name, token = _new_venue(api_client)
+    assert (
+        import_layout_cli(slug, _write_layout(tmp_path, _one_table_layout("Зал"))).returncode == 0
+    )
+    hall_id = _hall_id(api_client, token, "Зал")
+    detail = api_client.get(f"{HALLS_URL}/{hall_id}", headers=cookie_header(token)).json()
+    response = api_client.put(
+        LS_URL.format(hall_id=hall_id),
+        json=_ls_payload(detail),
+        headers={**cookie_header(token), "Origin": "https://evil.example"},
+    )
+    assert response.status_code == 403
+
+
+async def test_ls_concurrent_winner_and_stale(
+    api_client: TestClient, app_session: AsyncSession, tmp_path: Path
+) -> None:
+    import asyncio
+
+    from app.domain.layout import validate_layout_save
+    from app.services.halls import save_layout
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    slug, _login_name, token = _new_venue(api_client)
+    assert (
+        import_layout_cli(slug, _write_layout(tmp_path, _one_table_layout("Зал"))).returncode == 0
+    )
+    hall_id = _hall_id(api_client, token, "Зал")
+    detail = api_client.get(f"{HALLS_URL}/{hall_id}", headers=cookie_header(token)).json()
+    venue_id = int(api_client.get(ME_URL, headers=cookie_header(token)).json()["venue"]["id"])
+    assert APP_URL is not None
+    engine = create_async_engine(APP_URL)
+    try:
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+
+        async def _save(x: float) -> str:
+            async with factory() as session, session.begin():
+                body = _ls_payload(detail)
+                body["tables"][0]["x"] = x
+                try:
+                    await save_layout(session, venue_id, hall_id, validate_layout_save(body))
+                except Exception as exc:  # noqa: BLE001
+                    return type(exc).__name__
+                return "ok"
+
+        first, second = await asyncio.gather(_save(101.0), _save(202.0))
+    finally:
+        await engine.dispose()
+    assert sorted([first, second]) == ["LayoutStaleError", "ok"]
+    current = api_client.get(f"{HALLS_URL}/{hall_id}", headers=cookie_header(token)).json()
+    assert current["layout_revision"] == 2
+    assert current["tables"][0]["x"] in (101.0, 202.0)
+
+
+def test_ls_static_elements_round_trip(api_client: TestClient, tmp_path: Path) -> None:
+    """Static elements are editor-owned, validated, persisted and removable."""
+    slug, _login_name, token = _new_venue(api_client)
+    assert (
+        import_layout_cli(slug, _write_layout(tmp_path, _one_table_layout("Зал"))).returncode == 0
+    )
+    hall_id = _hall_id(api_client, token, "Зал")
+    detail = api_client.get(f"{HALLS_URL}/{hall_id}", headers=cookie_header(token)).json()
+    assert detail["static_elements"] == []
+
+    elements = [
+        {"type": "wall", "x": 0, "y": 0, "width": 200, "height": 8},
+        {"type": "bar", "x": 20, "y": 20, "width": 120, "height": 40, "label": "Бар"},
+        {"type": "text", "x": 30, "y": 30, "text": "Вход", "font_size": 18},
+    ]
+    saved = _ls_put(api_client, token, hall_id, _ls_payload(detail, static_elements=elements))
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["layout_revision"] == 2
+    assert [e["type"] for e in saved.json()["static_elements"]] == ["wall", "bar", "text"]
+
+    # Changing one element and dropping another bumps the revision once.
+    updated = _ls_put(
+        api_client,
+        token,
+        hall_id,
+        _ls_payload(saved.json(), static_elements=[dict(elements[0], x=50)]),
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["layout_revision"] == 3
+    assert len(updated.json()["static_elements"]) == 1
+    assert updated.json()["static_elements"][0]["x"] == 50
+
+
+def test_ls_invalid_payload_writes_nothing(api_client: TestClient, tmp_path: Path) -> None:
+    """A payload rejected by validation leaves the stored layout untouched."""
+    slug, _login_name, token = _new_venue(api_client)
+    assert (
+        import_layout_cli(slug, _write_layout(tmp_path, _one_table_layout("Зал"))).returncode == 0
+    )
+    hall_id = _hall_id(api_client, token, "Зал")
+    detail = api_client.get(f"{HALLS_URL}/{hall_id}", headers=cookie_header(token)).json()
+    before_x = detail["tables"][0]["x"]
+
+    # Clean table dicts (editor fields only) with a duplicate number: this
+    # passes the request schema and is rejected by the domain validator.
+    base_table = _ls_payload(detail)["tables"][0]
+    moved = dict(base_table)
+    moved["x"] = 999
+    body = _ls_payload(detail, tables=[base_table, moved])
+    rejected = _ls_put(api_client, token, hall_id, body)
+    assert rejected.status_code == 422
+    assert rejected.json()["code"] == "LAYOUT_INVALID"
+
+    current = api_client.get(f"{HALLS_URL}/{hall_id}", headers=cookie_header(token)).json()
+    assert current["layout_revision"] == detail["layout_revision"]
+    assert current["tables"][0]["x"] == before_x
+
+
+def test_ls_archive_blocked_by_future_booking(api_client: TestClient, tmp_path: Path) -> None:
+    """A layout-save that would archive a table with a future booking is atomic."""
+    from tests.integration.test_bookings_api import Venue
+
+    venue = Venue(api_client, tmp_path)
+    venue.create(start=venue.at(20), end=venue.at(22), table_ids=[venue.table_ids[0]])
+    hall_id = _hall_id(api_client, venue.token, "Зал")
+    detail = api_client.get(f"{HALLS_URL}/{hall_id}", headers=cookie_header(venue.token)).json()
+    before_revision = detail["layout_revision"]
+
+    editor_tables = _ls_payload(detail)["tables"]
+    body = _ls_payload(
+        detail, tables=[t for t in editor_tables if t["id"] != venue.table_ids[0]]
+    )  # omitting the booked table archives it
+    blocked = _ls_put(api_client, venue.token, hall_id, body)
+    assert blocked.status_code == 409
+    assert blocked.json()["code"] == "TABLE_ARCHIVE_BLOCKED"
+
+    current = api_client.get(f"{HALLS_URL}/{hall_id}", headers=cookie_header(venue.token)).json()
+    assert current["layout_revision"] == before_revision
+    archived = next(t for t in current["tables"] if t["id"] == venue.table_ids[0])
+    assert archived["archived_at"] is None
+
+
+async def test_ls_notifies_after_commit_and_not_on_stale(
+    api_client: TestClient, tmp_path: Path
+) -> None:
+    """A committed layout-save emits a venue ``resync``; a stale one emits nothing."""
+    import asyncio
+
+    import asyncpg
+    from app.realtime.events import CHANNEL
+    from app.realtime.listener import asyncpg_dsn
+
+    assert APP_URL
+    slug, _login_name, token = _new_venue(api_client)
+    assert (
+        import_layout_cli(slug, _write_layout(tmp_path, _one_table_layout("Зал"))).returncode == 0
+    )
+    hall_id = _hall_id(api_client, token, "Зал")
+    venue_id = int(api_client.get(ME_URL, headers=cookie_header(token)).json()["venue"]["id"])
+    detail = api_client.get(f"{HALLS_URL}/{hall_id}", headers=cookie_header(token)).json()
+
+    connection = await asyncpg.connect(asyncpg_dsn(APP_URL))
+    received: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
+
+    async def _callback(_conn: asyncpg.Connection, _pid: int, channel: str, payload: str) -> None:
+        await received.put((channel, payload))
+
+    await connection.add_listener(CHANNEL, _callback)
+    try:
+        body = _ls_payload(detail)
+        body["tables"][0]["x"] = 42
+        assert _ls_put(api_client, token, hall_id, body).status_code == 200
+        channel, payload = await asyncio.wait_for(received.get(), timeout=10)
+        assert channel == CHANNEL
+        assert f'"venue_id":{venue_id}' in payload
+        assert '"type":"resync"' in payload
+
+        while not received.empty():
+            received.get_nowait()
+        # A stale revision rolls back before ``publish``, so no phantom event.
+        stale = _ls_payload(detail)
+        stale["tables"][0]["x"] = 43
+        assert _ls_put(api_client, token, hall_id, stale).status_code == 409
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(received.get(), timeout=1.5)
+    finally:
+        await connection.close()

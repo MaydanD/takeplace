@@ -259,6 +259,39 @@ class TableUpdate(BaseModel):
     is_bookable: bool
 
 
+class LayoutSaveTable(BaseModel):
+    """One table row in a layout-save payload (§31, editor-owned fields only)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: int | None = None
+    number: str = Field(min_length=1, max_length=50)
+    capacity: int = Field(gt=0, le=100_000)
+    shape: str = Field(min_length=1, max_length=50)
+    x: float = Field(ge=0)
+    y: float = Field(ge=0)
+    width: float = Field(gt=0)
+    height: float = Field(gt=0)
+    rotation: float = Field(default=0, ge=0, le=360)
+    z_index: int = 0
+
+
+class LayoutSaveRequest(BaseModel):
+    """Full-state editor layout-save for one hall (§31).
+
+    ``is_bookable`` is deliberately absent on both levels: it is an operational
+    flag changed via separate mutations and never bumps ``layout_revision``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: int = Field(ge=1)
+    canvas_width: int = Field(ge=1, le=1_000_000)
+    canvas_height: int = Field(ge=1, le=1_000_000)
+    tables: list[LayoutSaveTable] = Field(default_factory=list, max_length=1000)
+    static_elements: list[StaticElement] = Field(default_factory=list)
+
+
 # --- bookings (Stage 5) -----------------------------------------------------
 
 

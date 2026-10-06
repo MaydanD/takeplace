@@ -10,6 +10,7 @@ import {
   useHall,
   useHalls,
   useTables,
+  useUpdateHall,
   useUpdateTable,
 } from "@/api/hallsQueries";
 import type { TableSummary } from "@/api/halls";
@@ -38,8 +39,10 @@ export function HallsPage() {
   const tables = useTables({ includeArchived: showArchived });
   const createHall = useCreateHall();
   const archiveHall = useArchiveHall();
+  const updateHall = useUpdateHall();
   const updateTable = useUpdateTable();
   const archiveTable = useArchiveTable();
+  const [renameValue, setRenameValue] = useState("");
 
   // Auto-select the first hall once the list arrives.
   useEffect(() => {
@@ -78,6 +81,26 @@ export function HallsPage() {
     }
   }
 
+  async function handleRenameHall(hallId: number) {
+    if (!renameValue.trim()) return;
+    setError(null);
+    try {
+      await updateHall.mutateAsync({ hallId, body: { name: renameValue.trim() } });
+      setRenameValue("");
+    } catch (caught) {
+      setError(archiveErrorMessage(caught));
+    }
+  }
+
+  async function handleToggleHallBookable(hallId: number, isBookable: boolean) {
+    setError(null);
+    try {
+      await updateHall.mutateAsync({ hallId, body: { is_bookable: !isBookable } });
+    } catch (caught) {
+      setError(archiveErrorMessage(caught));
+    }
+  }
+
   async function handleToggleBookable(table: TableSummary) {
     setError(null);
     try {
@@ -103,7 +126,11 @@ export function HallsPage() {
     <main className="page page--wide">
       <header className="page-header">
         <h1>Залы и столы</h1>
-        <Link to="/admin">← В админку</Link>
+        <nav>
+          <Link to="/admin/editor">Редактор схемы</Link>
+          {" · "}
+          <Link to="/admin">← В админку</Link>
+        </nav>
       </header>
 
       {error ? (
@@ -158,16 +185,50 @@ export function HallsPage() {
         <div className="card-heading">
           <h2>Схема{selectedHall.data ? `: ${selectedHall.data.name}` : ""}</h2>
           {selectedHall.data && selectedHall.data.archived_at === null ? (
-            <button
-              type="button"
-              className="button--danger"
-              onClick={() => handleArchiveHall(selectedHall.data.id)}
-              disabled={archiveHall.isPending}
-            >
-              Архивировать зал
-            </button>
+            <>
+              <label className="field field--inline">
+                <span>Для бронирования</span>
+                <input
+                  type="checkbox"
+                  checked={selectedHall.data.is_bookable}
+                  aria-label={`${selectedHall.data.name} bookable`}
+                  onChange={() =>
+                    handleToggleHallBookable(selectedHall.data!.id, selectedHall.data!.is_bookable)
+                  }
+                />
+              </label>
+              <button
+                type="button"
+                className="button--danger"
+                onClick={() => handleArchiveHall(selectedHall.data!.id)}
+                disabled={archiveHall.isPending}
+              >
+                Архивировать зал
+              </button>
+            </>
           ) : null}
         </div>
+        {selectedHall.data && selectedHall.data.archived_at === null ? (
+          <form
+            className="inline-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleRenameHall(selectedHall.data!.id);
+            }}
+          >
+            <label className="field">
+              <span>Новое имя</span>
+              <input
+                value={renameValue}
+                onChange={(event) => setRenameValue(event.target.value)}
+                placeholder={selectedHall.data.name}
+              />
+            </label>
+            <button type="submit" disabled={!renameValue.trim() || updateHall.isPending}>
+              Переименовать
+            </button>
+          </form>
+        ) : null}
         {selectedHall.data ? (
           <>
             <HallCanvas hall={selectedHall.data} showArchived={showArchived} />

@@ -1003,6 +1003,155 @@
         "title": "HallsResponse",
         "type": "object"
       },
+      "LayoutSaveRequest": {
+        "additionalProperties": false,
+        "description": "Full-state editor layout-save for one hall (§31).\n\n``is_bookable`` is deliberately absent on both levels: it is an operational\nflag changed via separate mutations and never bumps ``layout_revision``.",
+        "properties": {
+          "canvas_height": {
+            "maximum": 1000000.0,
+            "minimum": 1.0,
+            "title": "Canvas Height",
+            "type": "integer"
+          },
+          "canvas_width": {
+            "maximum": 1000000.0,
+            "minimum": 1.0,
+            "title": "Canvas Width",
+            "type": "integer"
+          },
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "static_elements": {
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "bar": "#/components/schemas/BarElement",
+                  "stage": "#/components/schemas/StageElement",
+                  "text": "#/components/schemas/TextElement",
+                  "wall": "#/components/schemas/WallElement",
+                  "zone": "#/components/schemas/ZoneElement"
+                },
+                "propertyName": "type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/WallElement"
+                },
+                {
+                  "$ref": "#/components/schemas/StageElement"
+                },
+                {
+                  "$ref": "#/components/schemas/BarElement"
+                },
+                {
+                  "$ref": "#/components/schemas/ZoneElement"
+                },
+                {
+                  "$ref": "#/components/schemas/TextElement"
+                }
+              ]
+            },
+            "title": "Static Elements",
+            "type": "array"
+          },
+          "tables": {
+            "items": {
+              "$ref": "#/components/schemas/LayoutSaveTable"
+            },
+            "maxItems": 1000,
+            "title": "Tables",
+            "type": "array"
+          }
+        },
+        "required": [
+          "expected_revision",
+          "canvas_width",
+          "canvas_height"
+        ],
+        "title": "LayoutSaveRequest",
+        "type": "object"
+      },
+      "LayoutSaveTable": {
+        "additionalProperties": false,
+        "description": "One table row in a layout-save payload (§31, editor-owned fields only).",
+        "properties": {
+          "capacity": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 100000.0,
+            "title": "Capacity",
+            "type": "integer"
+          },
+          "height": {
+            "exclusiveMinimum": 0.0,
+            "title": "Height",
+            "type": "number"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "number": {
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Number",
+            "type": "string"
+          },
+          "rotation": {
+            "default": 0,
+            "maximum": 360.0,
+            "minimum": 0.0,
+            "title": "Rotation",
+            "type": "number"
+          },
+          "shape": {
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Shape",
+            "type": "string"
+          },
+          "width": {
+            "exclusiveMinimum": 0.0,
+            "title": "Width",
+            "type": "number"
+          },
+          "x": {
+            "minimum": 0.0,
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "minimum": 0.0,
+            "title": "Y",
+            "type": "number"
+          },
+          "z_index": {
+            "default": 0,
+            "title": "Z Index",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "number",
+          "capacity",
+          "shape",
+          "x",
+          "y",
+          "width",
+          "height"
+        ],
+        "title": "LayoutSaveTable",
+        "type": "object"
+      },
       "LivenessResponse": {
         "properties": {
           "status": {
@@ -3404,6 +3553,59 @@
           }
         },
         "summary": "Post Archive Hall",
+        "tags": [
+          "admin-halls"
+        ]
+      }
+    },
+    "/api/admin/v1/halls/{hall_id}/layout": {
+      "put": {
+        "description": "Apply a full-state editor layout-save for one hall (PROJECT-SPEC §31).\n\nThe payload carries ``expected_revision`` plus the complete editor-owned\nstate (canvas size, tables, static elements). A stale revision returns\n``409 LAYOUT_STALE`` without writing anything; the commit also emits a\n``resync`` realtime signal, so a second admin device refetches instead of\nsilently overwriting the winner.",
+        "operationId": "put_hall_layout_api_admin_v1_halls__hall_id__layout_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "hall_id",
+            "required": true,
+            "schema": {
+              "title": "Hall Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LayoutSaveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HallDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Hall Layout",
         "tags": [
           "admin-halls"
         ]

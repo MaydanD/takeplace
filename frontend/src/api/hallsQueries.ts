@@ -13,10 +13,12 @@ import {
   fetchHall,
   fetchHalls,
   fetchTables,
+  saveHallLayout,
   updateHall,
   updateTable,
   type HallCreate,
   type HallUpdate,
+  type LayoutSaveRequest,
   type TableQuery,
   type TableUpdate,
 } from "@/api/halls";
@@ -99,6 +101,15 @@ export function useArchiveTable() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (tableId: number) => archiveTable(tableId),
+    onSuccess: () => invalidateLayout(queryClient),
+  });
+}
+
+export function useSaveHallLayout() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ hallId, body }: { hallId: number; body: LayoutSaveRequest }) =>
+      saveHallLayout(hallId, body),
     onSuccess: () => invalidateLayout(queryClient),
   });
 }

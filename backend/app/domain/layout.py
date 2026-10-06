@@ -169,6 +169,95 @@ def validate_table_geometry(
         raise LayoutValidationError(f"rotation must be between {ROTATION_MIN} and {ROTATION_MAX}")
 
 
+# --- Layout-save contract (Stage 10, §31) -----------------------------------
+#
+# The editor owns a per-hall full-state payload: canvas size, the ordered table
+# list (editor-owned fields only) and the static-element list. ``is_bookable``
+# is deliberately absent on both levels: it is an operational flag changed via
+# separate mutations and never bumps ``layout_revision``.
+
+
+class LayoutSaveTable(BaseModel):
+    """One table row in a layout-save payload.
+
+    Identity is stable by ``id``: ``id=None`` creates a new table, an existing
+    ``id`` updates it in place, and omitting a live table archives it in place
+    (history/occupancy rows keep their FK, §29.3).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: int | None = None
+    number: str = Field(min_length=1, max_length=50)
+    capacity: int = Field(gt=0, le=100_000)
+    shape: str
+    x: float = Field(ge=0)
+    y: float = Field(ge=0)
+    width: float = Field(gt=0)
+    height: float = Field(gt=0)
+    rotation: float = Field(default=0, ge=ROTATION_MIN, le=ROTATION_MAX)
+    z_index: int = 0
+
+    @field_validator("shape")
+    @classmethod
+    def _shape_allowed(cls, value: str) -> str:
+        if value not in VALID_TABLE_SHAPES:
+            raise ValueError(f"shape must be one of {list(VALID_TABLE_SHAPES)}")
+        return value
+
+
+class LayoutSave(BaseModel):
+    """Validated full-state layout-save payload (editor-owned fields only)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_revision: int = Field(ge=1)
+    canvas_width: int = Field(ge=MIN_CANVAS_SIZE, le=1_000_000)
+    canvas_height: int = Field(ge=MIN_CANVAS_SIZE, le=1_000_000)
+    tables: list[LayoutSaveTable] = Field(default_factory=list, max_length=1000)
+    static_elements: list[StaticElement] = Field(default_factory=list)
+
+
+def validate_layout_save(raw: Any) -> LayoutSave:
+    """Validate a raw layout-save payload, raising ``LayoutValidationError``.
+
+    The whole payload is validated before the service writes anything, so a bad
+    payload can never leave a partial layout behind. Geometry rules are checked
+    per table; duplicate ids/numbers are rejected; static-element count/size
+    limits are enforced.
+    """
+    try:
+        payload = LayoutSave.model_validate(raw)
+    except ValidationError as exc:
+        first = exc.errors()[0]
+        location = ".".join(str(part) for part in first["loc"]) or "<root>"
+        raise LayoutValidationError(f"{location}: {first['msg']}") from exc
+
+    seen_ids: set[int] = set()
+    seen_numbers: set[str] = set()
+    for index, table in enumerate(payload.tables):
+        validate_table_geometry(
+            shape=table.shape,
+            x=table.x,
+            y=table.y,
+            width=table.width,
+            height=table.height,
+            rotation=table.rotation,
+            capacity=table.capacity,
+        )
+        if table.id is not None:
+            if table.id <= 0:
+                raise LayoutValidationError(f"tables[{index}].id must be a positive table id")
+            if table.id in seen_ids:
+                raise LayoutValidationError(f"duplicate table id {table.id} in layout save")
+            seen_ids.add(table.id)
+        if table.number in seen_numbers:
+            raise LayoutValidationError(f"duplicate table number {table.number!r} in layout save")
+        seen_numbers.add(table.number)
+    _enforce_static_limits(payload.static_elements)
+    return payload
+
+
 # --- JSON / CLI import contract (§63 Stage 4) -------------------------------
 #
 # A layout file lists halls; each hall lists its tables and static elements.

@@ -109,6 +109,16 @@ def booking_stale(detail: str) -> ApiError:
     return ApiError(409, "BOOKING_STALE", detail)
 
 
+def layout_stale(detail: str, *, expected_revision: int, layout_revision: int) -> ApiError:
+    """``expected_revision`` does not match the stored hall layout revision (§31)."""
+    return ApiError(
+        409,
+        "LAYOUT_STALE",
+        detail,
+        {"expected_revision": expected_revision, "layout_revision": layout_revision},
+    )
+
+
 def booking_invalid_state(detail: str) -> ApiError:
     """The booking is not in a state that allows the requested operation (§9)."""
     return ApiError(409, "BOOKING_INVALID_STATE", detail)

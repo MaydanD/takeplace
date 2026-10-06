@@ -336,6 +336,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/v1/halls/{hall_id}/layout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Hall Layout
+         * @description Apply a full-state editor layout-save for one hall (PROJECT-SPEC §31).
+         *
+         *     The payload carries ``expected_revision`` plus the complete editor-owned
+         *     state (canvas size, tables, static elements). A stale revision returns
+         *     ``409 LAYOUT_STALE`` without writing anything; the commit also emits a
+         *     ``resync`` realtime signal, so a second admin device refetches instead of
+         *     silently overwriting the winner.
+         */
+        put: operations["put_hall_layout_api_admin_v1_halls__hall_id__layout_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/v1/me": {
         parameters: {
             query?: never;
@@ -1082,6 +1108,57 @@ export interface components {
         HallsResponse: {
             /** Halls */
             halls: components["schemas"]["HallSummary"][];
+        };
+        /**
+         * LayoutSaveRequest
+         * @description Full-state editor layout-save for one hall (§31).
+         *
+         *     ``is_bookable`` is deliberately absent on both levels: it is an operational
+         *     flag changed via separate mutations and never bumps ``layout_revision``.
+         */
+        LayoutSaveRequest: {
+            /** Canvas Height */
+            canvas_height: number;
+            /** Canvas Width */
+            canvas_width: number;
+            /** Expected Revision */
+            expected_revision: number;
+            /** Static Elements */
+            static_elements?: (components["schemas"]["WallElement"] | components["schemas"]["StageElement"] | components["schemas"]["BarElement"] | components["schemas"]["ZoneElement"] | components["schemas"]["TextElement"])[];
+            /** Tables */
+            tables?: components["schemas"]["LayoutSaveTable"][];
+        };
+        /**
+         * LayoutSaveTable
+         * @description One table row in a layout-save payload (§31, editor-owned fields only).
+         */
+        LayoutSaveTable: {
+            /** Capacity */
+            capacity: number;
+            /** Height */
+            height: number;
+            /** Id */
+            id?: number | null;
+            /** Number */
+            number: string;
+            /**
+             * Rotation
+             * @default 0
+             */
+            rotation: number;
+            /** Shape */
+            shape: string;
+            /** Width */
+            width: number;
+            /** X */
+            x: number;
+            /** Y */
+            y: number;
+            /**
+             * Z Index
+             * @default 0
+             */
+            z_index: number;
         };
         /** LivenessResponse */
         LivenessResponse: {
@@ -2270,6 +2347,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HallSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_hall_layout_api_admin_v1_halls__hall_id__layout_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                hall_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LayoutSaveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HallDetail"];
                 };
             };
             /** @description Validation Error */

@@ -23,23 +23,28 @@ from app.api.admin.schemas import (
     HallsResponse,
     HallSummary,
     HallUpdate,
+    LayoutSaveRequest,
     TablesResponse,
     TableSummary,
     TableUpdate,
 )
 from app.api.errors import (
+    capacity_change_blocked,
     hall_archive_blocked,
     layout_invalid,
+    layout_stale,
     not_found,
     table_archive_blocked,
     table_number_taken,
 )
 from app.db.models import Hall, Table
-from app.domain.layout import LayoutValidationError
+from app.domain.layout import LayoutValidationError, validate_layout_save
 from app.realtime.events import RESYNC, publish
 from app.services.errors import (
+    CapacityChangeBlockedError,
     HallArchiveBlockedError,
     HallNotFoundError,
+    LayoutStaleError,
     TableArchiveBlockedError,
     TableNotFoundError,
     TableNumberTakenError,
@@ -51,6 +56,7 @@ from app.services.halls import (
     get_hall,
     list_halls,
     list_tables,
+    save_layout,
     set_table_bookable,
     update_hall,
 )
@@ -74,6 +80,12 @@ def _translating_errors() -> Iterator[None]:
         raise table_archive_blocked(str(exc)) from exc
     except TableNumberTakenError as exc:
         raise table_number_taken(str(exc)) from exc
+    except CapacityChangeBlockedError as exc:
+        raise capacity_change_blocked(str(exc), exc.affected) from exc
+    except LayoutStaleError as exc:
+        raise layout_stale(
+            str(exc), expected_revision=exc.expected, layout_revision=exc.actual
+        ) from exc
 
 
 async def _table_counts(session: AsyncSession, venue_id: int) -> dict[int, int]:
@@ -175,6 +187,37 @@ async def post_archive_hall(
     await publish(session, venue_id=context.venue_id, event_type=RESYNC)
     await session.commit()
     return HallSummary.from_model(hall, table_count=0)
+
+
+@router.put(
+    "/halls/{hall_id}/layout",
+    response_model=HallDetail,
+    dependencies=[Depends(require_trusted_origin)],
+)
+async def put_hall_layout(
+    hall_id: int,
+    payload: LayoutSaveRequest,
+    context: AuthContextDep,
+    session: SessionDep,
+) -> HallDetail:
+    """Apply a full-state editor layout-save for one hall (PROJECT-SPEC §31).
+
+    The payload carries ``expected_revision`` plus the complete editor-owned
+    state (canvas size, tables, static elements). A stale revision returns
+    ``409 LAYOUT_STALE`` without writing anything; the commit also emits a
+    ``resync`` realtime signal, so a second admin device refetches instead of
+    silently overwriting the winner.
+    """
+    raw = payload.model_dump(mode="json")
+    with _translating_errors():
+        validated = validate_layout_save(raw)
+        hall = await save_layout(session, context.venue_id, hall_id, validated)
+    await publish(session, venue_id=context.venue_id, event_type=RESYNC)
+    await session.commit()
+    with _translating_errors():
+        hall = await get_hall(session, context.venue_id, hall_id)
+        tables = await list_tables(session, context.venue_id, hall_id=hall_id)
+    return HallDetail.from_model(hall, tables)
 
 
 @router.get("/tables", response_model=TablesResponse)

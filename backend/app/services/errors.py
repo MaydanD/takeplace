@@ -73,6 +73,19 @@ class HallArchiveBlockedError(ServiceError):
         self.active_tables = active_tables
 
 
+class LayoutStaleError(ServiceError):
+    """``expected_revision`` does not match the stored hall layout revision (§31)."""
+
+    def __init__(self, hall_id: int, expected: int, actual: int) -> None:
+        super().__init__(
+            f"hall {hall_id} layout was modified by another operation "
+            f"(expected revision {expected}, actual {actual})"
+        )
+        self.hall_id = hall_id
+        self.expected = expected
+        self.actual = actual
+
+
 class TableArchiveBlockedError(ServiceError):
     """A table cannot be archived while it has live/future occupancy (§29.3)."""
 

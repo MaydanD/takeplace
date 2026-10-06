@@ -209,6 +209,8 @@ body {
 .field input[type="password"],
 .field input[type="time"],
 .field input[type="date"],
+.field input[type="number"],
+.field select,
 .field input:not([type]) {
   padding: 0.5rem;
   border-radius: 0.5rem;
@@ -475,4 +477,43 @@ button:disabled {
   .public-booking .hall-canvas {
     max-width: 100%;
   }
+}
+
+/* --- Hall editor (Stage 10, §30/§52) ------------------------------------ */
+.editor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+.editor-toolbar .field {
+  margin-bottom: 0;
+}
+.editor-canvas {
+  overflow: auto;
+  max-width: 100%;
+  border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  border-radius: 0.5rem;
+}
+.editor-canvas__zoom {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.35rem 0.5rem;
+}
+.properties-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: flex-end;
+}
+.properties-panel .field {
+  margin-bottom: 0;
+  min-width: 6rem;
+}
+.field--inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0;
 }

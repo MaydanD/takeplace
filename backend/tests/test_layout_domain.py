@@ -11,6 +11,7 @@ from app.domain.layout import (
     parse_static_elements,
     validate_canvas,
     validate_layout_import,
+    validate_layout_save,
     validate_table_geometry,
 )
 
@@ -176,3 +177,66 @@ def test_validate_layout_import_rejects_invalid_table_geometry() -> None:
                 ]
             )
         )
+
+
+def _save(**overrides: object) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "expected_revision": 1,
+        "canvas_width": 800,
+        "canvas_height": 600,
+        "tables": [],
+        "static_elements": [],
+    }
+    base.update(overrides)
+    return base
+
+
+def _save_table(**overrides: object) -> dict[str, Any]:
+    table: dict[str, Any] = {
+        "number": "1",
+        "capacity": 4,
+        "shape": "rect",
+        "x": 10.0,
+        "y": 10.0,
+        "width": 80.0,
+        "height": 80.0,
+    }
+    table.update(overrides)
+    return table
+
+
+def test_validate_layout_save_accepts_valid_payload() -> None:
+    payload = validate_layout_save(
+        _save(
+            tables=[_save_table(id=7)],
+            static_elements=[{"type": "wall", "x": 0, "y": 0, "width": 100, "height": 10}],
+        )
+    )
+    assert payload.expected_revision == 1
+    assert payload.tables[0].id == 7
+    assert payload.static_elements[0].type == "wall"
+
+
+def test_validate_layout_save_rejects_unknown_field() -> None:
+    with pytest.raises(LayoutValidationError):
+        validate_layout_save(_save(is_bookable=True))
+
+
+def test_validate_layout_save_rejects_bookable_on_table() -> None:
+    with pytest.raises(LayoutValidationError):
+        validate_layout_save(_save(tables=[_save_table(is_bookable=False)]))
+
+
+def test_validate_layout_save_rejects_duplicate_ids() -> None:
+    with pytest.raises(LayoutValidationError, match="duplicate table id"):
+        validate_layout_save(_save(tables=[_save_table(id=1), _save_table(number="2", id=1)]))
+
+
+def test_validate_layout_save_rejects_duplicate_numbers() -> None:
+    with pytest.raises(LayoutValidationError, match="duplicate table number"):
+        validate_layout_save(_save(tables=[_save_table(), _save_table()]))
+
+
+def test_validate_layout_save_rejects_bad_geometry() -> None:
+    with pytest.raises(LayoutValidationError):
+        validate_layout_save(_save(tables=[_save_table(rotation=361)]))

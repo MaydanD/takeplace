@@ -16,6 +16,8 @@ export type TableSummary = components["schemas"]["TableSummary"];
 export type TableUpdate = components["schemas"]["TableUpdate"];
 export type HallsResponse = components["schemas"]["HallsResponse"];
 export type TablesResponse = components["schemas"]["TablesResponse"];
+export type LayoutSaveRequest = components["schemas"]["LayoutSaveRequest"];
+export type LayoutSaveTable = components["schemas"]["LayoutSaveTable"];
 /** A static layout element (wall/stage/bar/zone/text) as a discriminated union. */
 export type StaticElement = HallDetail["static_elements"][number];
 
@@ -65,4 +67,15 @@ export function updateTable(tableId: number, body: TableUpdate): Promise<TableSu
 
 export function archiveTable(tableId: number): Promise<TableSummary> {
   return apiRequest<TableSummary>(`${ADMIN_PREFIX}/tables/${tableId}/archive`, { method: "POST" });
+}
+
+/**
+ * Full-state editor layout-save (§31): `expected_revision` plus the complete
+ * editor-owned state. Returns the fresh `HallDetail` (new revision).
+ */
+export function saveHallLayout(hallId: number, body: LayoutSaveRequest): Promise<HallDetail> {
+  return apiRequest<HallDetail>(`${ADMIN_PREFIX}/halls/${hallId}/layout`, {
+    method: "PUT",
+    body,
+  });
 }

@@ -1,4 +1,5 @@
 import { PublicBookingPage } from "@/pages/PublicBookingPage";
+import { lazy, Suspense } from "react";
 import { Route, Routes, useLocation } from "react-router-dom";
 
 import { RequireAdmin } from "@/components/RequireAdmin";
@@ -10,6 +11,9 @@ import { NotFoundPage } from "@/pages/NotFoundPage";
 import { SchedulePage } from "@/pages/SchedulePage";
 import { SystemStatusPage } from "@/pages/SystemStatusPage";
 import { BookingBookPage } from "@/pages/BookingBookPage";
+
+// §30.5: the editor (Konva + its bundle) is code-split from the main admin app.
+const HallEditorPage = lazy(() => import("@/pages/HallEditorPage"));
 
 /**
  * Mount the realtime connection only inside the authenticated admin area, so
@@ -65,6 +69,16 @@ export function App() {
           element={
             <RequireAdmin>
               <HallsPage />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/editor"
+          element={
+            <RequireAdmin>
+              <Suspense fallback={<p>Загрузка редактора…</p>}>
+                <HallEditorPage />
+              </Suspense>
             </RequireAdmin>
           }
         />

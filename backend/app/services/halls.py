@@ -26,7 +26,9 @@ from app.domain.layout import (
     DEFAULT_HALL_NAME,
     HallSpec,
     LayoutImport,
+    LayoutSave,
     TableSpec,
+    parse_static_elements,
 )
 from app.domain.schedule import current_business_date
 from app.domain.timezone import load_timezone
@@ -34,6 +36,7 @@ from app.services.errors import (
     CapacityChangeBlockedError,
     HallArchiveBlockedError,
     HallNotFoundError,
+    LayoutStaleError,
     TableArchiveBlockedError,
     TableNotFoundError,
 )
@@ -201,26 +204,21 @@ async def set_table_bookable(
     return table
 
 
-async def archive_table(session: AsyncSession, venue_id: int, table_id: int) -> Table:
-    """Archive a table, occupancy-aware (§29.3).
+async def _guard_table_archive(
+    session: AsyncSession, venue_id: int, table: Table, now: datetime
+) -> None:
+    """Raise ``TableArchiveBlockedError`` if the table cannot be archived (§29.3).
 
-    Forbidden while the table has a live row of the current business day (§29.3;
-    live rows are a later stage) or a future active BOOKING occupancy. Archiving
-    takes the table ``FOR UPDATE``, which serialises with a booking create's
-    ``FOR SHARE``: the "no bookings -> archive" window cannot be raced (§54.9).
-    Active BLOCK rows are deactivated rather than deleted.
+    The caller must already hold the table row ``FOR UPDATE`` so the
+    "no bookings -> archive" window cannot be raced (§54.9).
     """
-    table = await get_table(session, venue_id, table_id, for_update=True)
-    if table.archived_at is not None:
-        return table
-    now = await operation_now(session)
     future_bookings = (
         await session.execute(
             select(func.count())
             .select_from(TableOccupancy)
             .where(
                 TableOccupancy.venue_id == venue_id,
-                TableOccupancy.table_id == table_id,
+                TableOccupancy.table_id == table.id,
                 TableOccupancy.kind == "BOOKING",
                 TableOccupancy.is_active.is_(True),
                 TableOccupancy.ends_at > now,
@@ -240,7 +238,7 @@ async def archive_table(session: AsyncSession, venue_id: int, table_id: int) -> 
                 select(BookingLiveTable.id)
                 .where(
                     BookingLiveTable.venue_id == venue_id,
-                    BookingLiveTable.table_id == table_id,
+                    BookingLiveTable.table_id == table.id,
                     BookingLiveTable.business_date == day,
                 )
                 .limit(1)
@@ -248,6 +246,22 @@ async def archive_table(session: AsyncSession, venue_id: int, table_id: int) -> 
             is not None
         ):
             raise TableArchiveBlockedError("it still has guests in the current business day")
+
+
+async def archive_table(session: AsyncSession, venue_id: int, table_id: int) -> Table:
+    """Archive a table, occupancy-aware (§29.3).
+
+    Forbidden while the table has a live row of the current business day (§29.3;
+    live rows are a later stage) or a future active BOOKING occupancy. Archiving
+    takes the table ``FOR UPDATE``, which serialises with a booking create's
+    ``FOR SHARE``: the "no bookings -> archive" window cannot be raced (§54.9).
+    Active BLOCK rows are deactivated rather than deleted.
+    """
+    table = await get_table(session, venue_id, table_id, for_update=True)
+    if table.archived_at is not None:
+        return table
+    now = await operation_now(session)
+    await _guard_table_archive(session, venue_id, table, now)
     await session.execute(
         update(TableOccupancy)
         .where(
@@ -262,6 +276,146 @@ async def archive_table(session: AsyncSession, venue_id: int, table_id: int) -> 
     table.updated_at = now
     await session.flush()
     return table
+
+
+async def save_layout(
+    session: AsyncSession, venue_id: int, hall_id: int, payload: LayoutSave
+) -> Hall:
+    """Apply a full-state editor layout-save for one hall (PROJECT-SPEC §31).
+
+    Ordering (§32.4): venue-scoped exclusive layout advisory lock (serialises
+    cross-hall capacity write skew), then ``hall FOR UPDATE``, then all live
+    tables of the hall ``FOR UPDATE`` ordered by id, then ``operation_now``,
+    then validation, then writes.
+
+    Identity is by ``id``: ``id=None`` creates a table, a known ``id`` updates
+    it in place, and a live table missing from the payload is archived in place
+    (occupancy/history rows keep their FK, §29.3). Operational ``is_bookable``
+    is never touched: it is not part of the editor state.
+
+    A no-op payload (identical canvas, tables and static elements) does not
+    bump ``layout_revision``. A stale ``expected_revision`` raises
+    ``LayoutStaleError`` (``409 LAYOUT_STALE``) without writing anything.
+    """
+    await acquire_layout_lock(session, venue_id)
+    hall = await get_hall(session, venue_id, hall_id, for_update=True)
+    if hall.archived_at is not None:
+        raise HallNotFoundError(hall_id)
+    if hall.layout_revision != payload.expected_revision:
+        raise LayoutStaleError(hall_id, payload.expected_revision, hall.layout_revision)
+
+    existing = {
+        table.id: table
+        for table in (
+            await session.execute(
+                select(Table)
+                .where(
+                    Table.hall_id == hall.id,
+                    Table.venue_id == venue_id,
+                    Table.archived_at.is_(None),
+                )
+                .order_by(Table.id)
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .all()
+    }
+    for spec in payload.tables:
+        if spec.id is not None and spec.id not in existing:
+            raise TableNotFoundError(spec.id)
+
+    now = await operation_now(session)
+    canvas_changed = (
+        hall.canvas_width != payload.canvas_width or hall.canvas_height != payload.canvas_height
+    )
+    static_elements = parse_static_elements(
+        [element.model_dump(mode="json") for element in payload.static_elements]
+    )
+    static_changed = hall.static_elements != static_elements
+
+    wanted_ids = {spec.id for spec in payload.tables if spec.id is not None}
+    to_archive = [table for table_id, table in existing.items() if table_id not in wanted_ids]
+
+    for table in to_archive:
+        await _guard_table_archive(session, venue_id, table, now)
+
+    tables_changed = False
+    for spec in payload.tables:
+        if spec.id is None:
+            session.add(
+                Table(
+                    venue_id=venue_id,
+                    hall_id=hall.id,
+                    number=spec.number,
+                    capacity=spec.capacity,
+                    shape=spec.shape,
+                    x=_dec(spec.x),
+                    y=_dec(spec.y),
+                    width=_dec(spec.width),
+                    height=_dec(spec.height),
+                    rotation=_dec(spec.rotation),
+                    z_index=spec.z_index,
+                    is_bookable=True,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+            tables_changed = True
+        else:
+            table = existing[spec.id]
+            values = {
+                "number": spec.number,
+                "capacity": spec.capacity,
+                "shape": spec.shape,
+                "x": _dec(spec.x),
+                "y": _dec(spec.y),
+                "width": _dec(spec.width),
+                "height": _dec(spec.height),
+                "rotation": _dec(spec.rotation),
+                "z_index": spec.z_index,
+            }
+            if any(getattr(table, field) != value for field, value in values.items()):
+                for field, value in values.items():
+                    setattr(table, field, value)
+                table.updated_at = now
+                tables_changed = True
+
+    for table in to_archive:
+        await session.execute(
+            update(TableOccupancy)
+            .where(
+                TableOccupancy.venue_id == venue_id,
+                TableOccupancy.table_id == table.id,
+                TableOccupancy.kind == "BLOCK",
+                TableOccupancy.is_active.is_(True),
+            )
+            .values(is_active=False, updated_at=now)
+        )
+        table.archived_at = now
+        table.updated_at = now
+        tables_changed = True
+
+    await session.flush()
+    if tables_changed:
+        # §29.4: the capacities just written (archived tables count as 0) must
+        # not strand an existing future booking. The table row locks above
+        # serialise this with a concurrent booking create.
+        affected = await _capacity_breakers(session, venue_id, now)
+        if affected:
+            raise CapacityChangeBlockedError(affected)
+
+    if canvas_changed:
+        hall.canvas_width = payload.canvas_width
+        hall.canvas_height = payload.canvas_height
+    if static_changed:
+        hall.static_elements = static_elements
+
+    if canvas_changed or static_changed or tables_changed:
+        hall.layout_revision += 1
+    hall.updated_at = now
+    await session.flush()
+    return hall
 
 
 async def _capacity_breakers(
