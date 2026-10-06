@@ -7,6 +7,7 @@ import { fetchHalls, fetchHall, fetchTables, type TableSummary } from "@/api/hal
 import { HallCanvas } from "@/components/HallCanvas";
 import { ApiError } from "@/api/client";
 import {
+  addTables,
   bookingError,
   cancelBooking,
   changeTime,
@@ -18,6 +19,8 @@ import {
   fetchLiveBookings,
   fetchUnresolved,
   lifecycleBooking,
+  removeTable,
+  replaceTables,
   venueInput,
   venueInstant,
   type Booking,
@@ -50,6 +53,9 @@ const events: Record<string, string> = {
   BOOKING_CANCELED: "Бронь отменена",
   TIME_CHANGED: "Время изменено",
   BOOKING_RESCHEDULED: "Бронь перенесена",
+  TABLE_ADDED: "Стол добавлен",
+  TABLE_REMOVED: "Стол убран",
+  TABLE_REPLACED: "Столы заменены / пересадка",
 };
 const dateTime = (value: string, timezone: string) =>
   new Intl.DateTimeFormat("ru-RU", {
@@ -303,6 +309,162 @@ function CreateForm({
   );
 }
 
+function TableControls({
+  booking: b,
+  tables,
+  pending,
+  blocked,
+  mutate,
+}: {
+  booking: Booking;
+  tables: TableSummary[];
+  pending: boolean;
+  blocked: boolean;
+  mutate: (action: () => Promise<Booking>) => void;
+}) {
+  const isOpen = b.status === "OPEN";
+  const assigned = isOpen ? b.live_table_ids : b.table_ids;
+  const candidates = tables.filter((t) => t.is_bookable && !t.archived_at);
+  const addable = candidates.filter((t) => !assigned.includes(t.id));
+  const [addId, setAddId] = useState<number | "">("");
+  const [replaceFrom, setReplaceFrom] = useState<number | "">(assigned[0] ?? "");
+  const [replaceTo, setReplaceTo] = useState<number | "">("");
+  const [reseat, setReseat] = useState<number[]>(assigned);
+  const seats = (ids: number[]) =>
+    ids.reduce((sum, id) => sum + (tables.find((t) => t.id === id)?.capacity ?? 0), 0);
+  const reseatUnchanged =
+    reseat.length === assigned.length && reseat.every((id) => assigned.includes(id));
+  return (
+    <section aria-label="Управление столами">
+      <h3>{isOpen ? "Фактическая рассадка" : "Плановые столы"}</h3>
+      <p>
+        {isOpen ? "Столы в зале" : "Столы в плане"}: {tableNames(assigned, tables)} · мест{" "}
+        {seats(assigned)} · гостей {b.party_size}
+      </p>
+      {assigned.length === 0 && <p role="alert">У брони нет назначенных столов.</p>}
+      <ul className="booking-tables-list">
+        {assigned.map((id) => (
+          <li key={id}>
+            {isOpen ? "В зале" : "В плане"}: стол {tableNames([id], tables)}{" "}
+            <button
+              disabled={pending || blocked || assigned.length <= 1}
+              title={assigned.length <= 1 ? "Нельзя оставить бронь без столов" : undefined}
+              onClick={() => void mutate(() => removeTable(b.id, id, b.version))}
+            >
+              Убрать
+            </button>
+          </li>
+        ))}
+      </ul>
+      <fieldset disabled={pending || blocked} className="booking-form-grid">
+        <label className="field">
+          Добавить стол
+          <select
+            value={addId}
+            onChange={(e) => setAddId(e.target.value ? Number(e.target.value) : "")}
+          >
+            <option value="">— выберите —</option>
+            {addable.map((t) => (
+              <option key={t.id} value={t.id}>
+                Стол {t.number} · {t.capacity} мест
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          disabled={addId === ""}
+          onClick={() =>
+            void mutate(() =>
+              addTables(b.id, { expected_version: b.version, table_ids: [Number(addId)] }),
+            )
+          }
+        >
+          Добавить стол
+        </button>
+        <label className="field">
+          Заменить стол
+          <select
+            value={replaceFrom}
+            onChange={(e) => setReplaceFrom(e.target.value ? Number(e.target.value) : "")}
+          >
+            <option value="">— текущий —</option>
+            {assigned.map((id) => (
+              <option key={id} value={id}>
+                {tableNames([id], tables)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          На стол
+          <select
+            value={replaceTo}
+            onChange={(e) => setReplaceTo(e.target.value ? Number(e.target.value) : "")}
+          >
+            <option value="">— новый —</option>
+            {addable.map((t) => (
+              <option key={t.id} value={t.id}>
+                Стол {t.number} · {t.capacity} мест
+              </option>
+            ))}
+          </select>
+        </label>
+        <button
+          disabled={replaceFrom === "" || replaceTo === ""}
+          onClick={() =>
+            void mutate(() =>
+              replaceTables(b.id, {
+                expected_version: b.version,
+                from_table_ids: [Number(replaceFrom)],
+                to_table_ids: [Number(replaceTo)],
+              }),
+            )
+          }
+        >
+          Заменить стол
+        </button>
+      </fieldset>
+      {isOpen && (
+        <fieldset disabled={pending || blocked} className="booking-form-grid">
+          <legend>Пересадка гостей (до конца плана)</legend>
+          {candidates.map((t) => (
+            <label key={t.id}>
+              <input
+                type="checkbox"
+                checked={reseat.includes(t.id)}
+                onChange={(e) =>
+                  setReseat((prev) =>
+                    e.target.checked ? [...prev, t.id] : prev.filter((id) => id !== t.id),
+                  )
+                }
+              />{" "}
+              Стол {t.number} · {t.capacity} мест
+            </label>
+          ))}
+          <p>
+            Новый набор: {tableNames(reseat, tables)} · мест {seats(reseat)}
+            {seats(reseat) < b.party_size && " — недостаточно для гостей"}
+          </p>
+          <button
+            disabled={reseat.length === 0 || reseatUnchanged}
+            onClick={() =>
+              void mutate(() =>
+                replaceTables(b.id, {
+                  expected_version: b.version,
+                  from_table_ids: assigned.filter((id) => !reseat.includes(id)),
+                  to_table_ids: reseat.filter((id) => !assigned.includes(id)),
+                }),
+              )
+            }
+          >
+            Пересадить гостей
+          </button>
+        </fieldset>
+      )}
+    </section>
+  );
+}
+
 function BookingCard({
   id,
   timezone,
@@ -449,6 +611,16 @@ function BookingCard({
             <button onClick={() => onNetwork(b.id)}>Брони с тем же сетевым отпечатком</button>
           )}
           {["NEW", "WAITING", "OPEN"].includes(b.status) && (
+            <TableControls
+              key={`tables-${b.version}`}
+              booking={b}
+              tables={tables}
+              pending={pending}
+              blocked={blocked}
+              mutate={mutate}
+            />
+          )}
+          {["NEW", "WAITING", "OPEN"].includes(b.status) && (
             <form
               key={`guest-${b.version}`}
               onSubmit={(e) => {
@@ -550,6 +722,39 @@ function BookingCard({
                 </fieldset>
               </form>
             </>
+          )}
+          {b.status === "OPEN" && (
+            <form
+              key={`open-end-${b.version}`}
+              onSubmit={(e) => {
+                e.preventDefault();
+                const values = new FormData(e.currentTarget);
+                void mutate(() =>
+                  changeTime(b.id, {
+                    expected_version: b.version,
+                    ends_at: venueInstant(String(values.get("end")), timezone),
+                  }),
+                );
+              }}
+            >
+              <h3>Изменить конец брони</h3>
+              <fieldset disabled={pending || blocked} className="booking-form-grid">
+                <label className="field">
+                  Новый конец
+                  <input
+                    name="end"
+                    type="datetime-local"
+                    step={300}
+                    required
+                    defaultValue={venueInput(b.ends_at, timezone)}
+                  />
+                </label>
+                <button>Изменить конец</button>
+              </fieldset>
+              <p className="hint">
+                Начало брони не меняется. После конца плана изменение недоступно — завершите визит.
+              </p>
+            </form>
           )}
           <h3>История</h3>
           {history.isError && <p role="alert">Не удалось загрузить историю.</p>}

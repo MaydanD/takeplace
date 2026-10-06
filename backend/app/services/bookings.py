@@ -49,7 +49,7 @@ from app.db.models import (
     TableOccupancy,
     Venue,
 )
-from app.db.time import operation_now
+from app.db.time import SLOT_MINUTES, is_on_5_minute_grid, operation_now
 from app.domain.booking import (
     ADMIN_BOOKING_SOURCES,
     BOOKING_REASONS,
@@ -567,6 +567,19 @@ async def _lock_active_occupancies(
     return list(rows.scalars().all())
 
 
+async def _live_table_ids(session: AsyncSession, venue_id: int, booking_id: int) -> list[int]:
+    """Return the factual live tables of an OPEN booking, ascending (§6.9)."""
+    rows = await session.execute(
+        select(BookingLiveTable.table_id)
+        .where(
+            BookingLiveTable.venue_id == venue_id,
+            BookingLiveTable.booking_id == booking_id,
+        )
+        .order_by(BookingLiveTable.table_id)
+    )
+    return [int(table_id) for table_id in rows.scalars().all()]
+
+
 # --- create -----------------------------------------------------------------
 
 
@@ -582,15 +595,14 @@ async def _check_live_conflicts(
     exclude_booking_id: int | None = None,
 ) -> None:
     if business_date is not None:
-        existing = await session.scalar(
-            select(BookingLiveTable.id)
-            .where(
-                BookingLiveTable.venue_id == venue_id,
-                BookingLiveTable.table_id.in_(table_ids),
-                BookingLiveTable.business_date == business_date,
-            )
-            .limit(1)
+        query = select(BookingLiveTable.id).where(
+            BookingLiveTable.venue_id == venue_id,
+            BookingLiveTable.table_id.in_(table_ids),
+            BookingLiveTable.business_date == business_date,
         )
+        if exclude_booking_id is not None:
+            query = query.where(BookingLiveTable.booking_id != exclude_booking_id)
+        existing = await session.scalar(query.limit(1))
         if existing is not None:
             raise TableLiveConflictError()
     for table_id in table_ids:
@@ -1371,19 +1383,159 @@ async def lifecycle_booking(
     raise ServiceUnavailableError()
 
 
+async def _change_open_end_once(
+    session: AsyncSession,
+    *,
+    venue: Venue,
+    booking_id: int,
+    expected_version: int,
+    starts_at: datetime | None,
+    ends_at: datetime,
+    admin_session_id: int | None,
+) -> Booking:
+    """Change only the ``ends_at`` of an OPEN booking before its plan end (§26.2).
+
+    ``starts_at`` never moves for OPEN. An extension grows only the tail
+    effective segments (the past is never re-derived); a shortening frees the
+    tail through the canonical ``truncate_segment_at``. Live rows are untouched.
+    """
+    venue_id = venue.id
+    booking = await _lock_booking(session, venue_id, booking_id)
+    if booking.version != expected_version:
+        raise BookingStaleError(booking_id)
+    if booking.status != "OPEN":
+        raise BookingInvalidStateError(
+            f"a booking in status {booking.status} cannot change its end time"
+        )
+    if starts_at is not None and starts_at != booking.starts_at:
+        raise BookingRuleViolationError("an OPEN booking cannot move its start time")
+    plan_ids = await active_table_ids(session, venue_id, booking_id)
+    live_ids = await _live_table_ids(session, venue_id, booking_id)
+    table_ids = sorted(set(plan_ids) | set(live_ids))
+    if not table_ids:
+        raise BookingInvalidStateError("the open booking has no assigned tables")
+    # A live mutation is serialised with create/early-OPEN through FOR UPDATE (§32.3).
+    _, tables = await _lock_halls_tables(session, venue_id, table_ids, live=True)
+    by_id = {table.id: table for table in tables}
+    now = await operation_now(session)
+    old_end = booking.ends_at
+    if now >= old_end:
+        raise BookingInvalidStateError("a booking past its plan end cannot change its end time")
+    if not is_on_5_minute_grid(ends_at):
+        raise BookingRuleViolationError(f"ends_at must be on the {SLOT_MINUTES}-minute grid")
+    if ends_at <= max(now, booking.starts_at):
+        raise BookingRuleViolationError("the new end must be after the current booking start")
+    if ends_at > booking.shift_ends_at:
+        raise BookingRuleViolationError("the booking interval must stay inside one shift")
+    occupancies = await _lock_active_occupancies(session, venue_id, booking_id)
+    if ends_at > old_end:
+        await _check_live_conflicts(
+            session,
+            venue_id,
+            live_ids,
+            old_end,
+            ends_at,
+            now,
+            business_date=booking.business_date,
+            exclude_booking_id=booking_id,
+        )
+        conflicts = await _conflicting_booking_ids(
+            session, venue_id, live_ids, old_end, ends_at, exclude_booking_id=booking_id
+        )
+        if conflicts:
+            raise BookingConflictError(conflicts)
+        live_capacity = sum(by_id[table_id].capacity for table_id in live_ids)
+        if live_capacity < booking.party_size:
+            raise BookingRuleViolationError("insufficient live capacity for the party size")
+        tail_by_table = {
+            occupancy.table_id: occupancy
+            for occupancy in occupancies
+            if occupancy.ends_at == old_end and occupancy.is_active
+        }
+        for table_id in live_ids:
+            occupancy = tail_by_table.get(table_id)
+            if occupancy is not None:
+                occupancy.ends_at = ends_at
+                occupancy.updated_at = now
+            else:
+                session.add(
+                    TableOccupancy(
+                        venue_id=venue_id,
+                        table_id=table_id,
+                        kind="BOOKING",
+                        booking_id=booking_id,
+                        starts_at=old_end,
+                        ends_at=ends_at,
+                        is_active=True,
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+    else:
+        for occupancy in occupancies:
+            segment = truncate_segment_at(
+                Segment(occupancy.starts_at, occupancy.ends_at, occupancy.is_active), ends_at
+            )
+            occupancy.starts_at = segment.starts_at
+            occupancy.ends_at = segment.ends_at
+            occupancy.is_active = segment.is_active
+            occupancy.updated_at = now
+    booking.ends_at = ends_at
+    booking.version += 1
+    booking.updated_at = now
+    session.add(
+        _event(
+            venue_id=venue_id,
+            booking_id=booking_id,
+            event_type="TIME_CHANGED",
+            actor_type="ADMIN",
+            admin_session_id=admin_session_id,
+            created_at=now,
+            payload={
+                "starts_at": booking.starts_at.isoformat(),
+                "ends_at": ends_at.isoformat(),
+            },
+        )
+    )
+    await session.flush()
+    await publish(session, venue_id=venue_id, event_type=BOOKING_UPDATED, ids=[booking_id])
+    return booking
+
+
 async def _change_time_once(
     session: AsyncSession,
     *,
     venue_id: int,
     booking_id: int,
     expected_version: int,
-    starts_at: datetime,
+    starts_at: datetime | None,
     ends_at: datetime,
     admin_session_id: int | None,
 ) -> Booking:
     venue = await session.get(Venue, venue_id)
     if venue is None:
         raise BookingNotFoundError(venue_id)
+    # Decide the lock path from a plain read; the authoritative status is
+    # re-checked under the booking lock inside each branch. An OPEN booking can
+    # only change its end, which cannot move the business date, so it does not
+    # take the schedule lock (§32.3).
+    peek = (
+        await session.execute(
+            select(Booking.status).where(Booking.id == booking_id, Booking.venue_id == venue_id)
+        )
+    ).scalar_one_or_none()
+    if peek is None:
+        raise BookingNotFoundError(booking_id)
+    if peek == "OPEN":
+        return await _change_open_end_once(
+            session,
+            venue=venue,
+            booking_id=booking_id,
+            expected_version=expected_version,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            admin_session_id=admin_session_id,
+        )
     # A reschedule can change the business date, so it holds the shared schedule
     # lock before touching the booking (§32.3).
     await acquire_schedule_lock_shared(session, venue_id)
@@ -1394,6 +1546,8 @@ async def _change_time_once(
         raise BookingInvalidStateError(
             f"a booking in status {booking.status} cannot be rescheduled"
         )
+    if starts_at is None:
+        starts_at = booking.starts_at
     venue_tz = load_timezone(venue.timezone)
     schedule = await load_schedule_table(session, venue_id)
     end_only = starts_at == booking.starts_at
@@ -1424,16 +1578,33 @@ async def _change_time_once(
     if business_date > booking_horizon_end(current_business_date(now, schedule, venue_tz)):
         raise BookingRuleViolationError("business date is beyond the booking horizon")
     _check_bookable(tables, halls)
+    check_start = booking.ends_at if end_only else starts_at
     _assert_capacity(tables, booking.party_size, starts_at, ends_at)
-    await _check_live_conflicts(
-        session, venue_id, table_ids, starts_at, ends_at, now, exclude_booking_id=booking_id
-    )
-    conflicts = await _conflicting_booking_ids(
-        session, venue_id, table_ids, starts_at, ends_at, exclude_booking_id=booking_id
-    )
-    if conflicts:
-        raise BookingConflictError(conflicts)
+    # End-only edits reserve only the extended tail; shortening reserves nothing.
+    # In particular, never backfill a replacement table into the booking's past.
+    if check_start < ends_at:
+        await _check_live_conflicts(
+            session, venue_id, table_ids, check_start, ends_at, now, exclude_booking_id=booking_id
+        )
+        conflicts = await _conflicting_booking_ids(
+            session, venue_id, table_ids, check_start, ends_at, exclude_booking_id=booking_id
+        )
+        if conflicts:
+            raise BookingConflictError(conflicts)
     for occupancy in await _lock_active_occupancies(session, venue_id, booking_id):
+        if end_only:
+            if ends_at > booking.ends_at:
+                if occupancy.ends_at == booking.ends_at:
+                    occupancy.ends_at = ends_at
+            else:
+                segment = truncate_segment_at(
+                    Segment(occupancy.starts_at, occupancy.ends_at, occupancy.is_active), ends_at
+                )
+                occupancy.starts_at = segment.starts_at
+                occupancy.ends_at = segment.ends_at
+                occupancy.is_active = segment.is_active
+            occupancy.updated_at = now
+            continue
         segment = truncate_segment_at(
             Segment(occupancy.starts_at, occupancy.ends_at, occupancy.is_active), now
         )
@@ -1441,7 +1612,7 @@ async def _change_time_once(
         occupancy.ends_at = segment.ends_at
         occupancy.is_active = False
         occupancy.updated_at = now
-    for table in tables:
+    for table in tables if not end_only else []:
         session.add(
             TableOccupancy(
                 venue_id=venue_id,
@@ -1492,11 +1663,11 @@ async def change_booking_time(
     venue_id: int,
     booking_id: int,
     expected_version: int,
-    starts_at: datetime,
+    starts_at: datetime | None,
     ends_at: datetime,
     admin_session_id: int | None,
 ) -> BookingView:
-    """Move a NEW/WAITING booking to a new interval, writing a new snapshot (§5.5, §32.3)."""
+    """Move a NEW/WAITING booking, or change an OPEN booking's end (§5.5, §26)."""
     for attempt in range(MAX_ATTEMPTS):
         try:
             async with session.begin():
@@ -1518,6 +1689,301 @@ async def change_booking_time(
                 raise ServiceUnavailableError() from exc
             raise
     raise ServiceUnavailableError()  # pragma: no cover - the loop always returns or raises
+
+
+# --- table assignment (add/remove/replace/reseat) ---------------------------
+
+
+async def _mutate_tables_once(
+    session: AsyncSession,
+    *,
+    venue_id: int,
+    booking_id: int,
+    expected_version: int,
+    add_ids: list[int],
+    remove_ids: list[int],
+    admin_session_id: int | None,
+) -> Booking:
+    """Add and/or remove tables atomically, for NEW/WAITING (plan) or OPEN (live).
+
+    Ordering (§32.3): booking ``FOR UPDATE`` then the union of the old and new
+    tables ascending (``FOR SHARE`` for a plan mutation, ``FOR UPDATE`` when the
+    live set changes). A plan mutation rewrites ``table_occupancies``; an OPEN
+    mutation additionally rewrites ``booking_live_tables`` so plan and live fact
+    never diverge. A remove inside the interval ends the effective segment
+    through the canonical ``truncate_segment_at`` (§20.2/§20.5).
+    """
+    venue = await session.get(Venue, venue_id)
+    if venue is None:
+        raise BookingNotFoundError(venue_id)
+    if len(set(add_ids)) != len(add_ids) or len(set(remove_ids)) != len(remove_ids):
+        raise BookingRuleViolationError("duplicate table in the request")
+    add_ids = sorted(add_ids)
+    remove_ids = sorted(remove_ids)
+    overlap = set(add_ids) & set(remove_ids)
+    if overlap:
+        raise BookingRuleViolationError("a table cannot be added and removed at once")
+    booking = await _lock_booking(session, venue_id, booking_id)
+    if booking.version != expected_version:
+        raise BookingStaleError(booking_id)
+    if booking.status not in ("NEW", "WAITING", "OPEN"):
+        raise BookingInvalidStateError(
+            f"a booking in status {booking.status} cannot change its tables"
+        )
+    is_open = booking.status == "OPEN"
+    current_ids = set(await active_table_ids(session, venue_id, booking_id))
+    if is_open:
+        current_ids |= set(await _live_table_ids(session, venue_id, booking_id))
+    for table_id in remove_ids:
+        if table_id not in current_ids:
+            raise BookingRuleViolationError(f"table {table_id} is not assigned to this booking")
+    for table_id in add_ids:
+        if table_id in current_ids:
+            raise BookingRuleViolationError(f"table {table_id} is already assigned to this booking")
+    new_ids = sorted((current_ids - set(remove_ids)) | set(add_ids))
+    if not new_ids:
+        raise BookingRuleViolationError("a booking must keep at least one table")
+    # Lock the full dependency set (old and new) before the clock and validation.
+    lock_ids = sorted(current_ids | set(new_ids))
+    halls, tables = await _lock_halls_tables(session, venue_id, lock_ids, live=is_open)
+    by_id = {table.id: table for table in tables}
+    now = await operation_now(session)
+    if now >= booking.shift_ends_at:
+        raise BookingInvalidStateError(
+            "a previous-shift booking permits only close or guest-text edits"
+        )
+    if now >= booking.ends_at:
+        raise BookingInvalidStateError("a booking past its plan end cannot change its tables")
+    # Only newly added tables introduce a bookability question; kept ones were valid.
+    if add_ids:
+        _check_bookable([by_id[table_id] for table_id in add_ids], halls)
+    new_start = max(now, booking.starts_at)
+    occupancies = await _lock_active_occupancies(session, venue_id, booking_id)
+    if add_ids:
+        await _check_live_conflicts(
+            session,
+            venue_id,
+            add_ids,
+            new_start,
+            booking.ends_at,
+            now,
+            business_date=booking.business_date if is_open else None,
+            exclude_booking_id=booking_id,
+        )
+        conflicts = await _conflicting_booking_ids(
+            session,
+            venue_id,
+            add_ids,
+            new_start,
+            booking.ends_at,
+            exclude_booking_id=booking_id,
+        )
+        if conflicts:
+            raise BookingConflictError(conflicts)
+    # Capacity invariant over the resulting plan (§14); removed tables are
+    # truncated at ``now`` so they no longer cover the future sub-intervals.
+    removed_set = set(remove_ids)
+    assigned = [
+        (by_id[o.table_id].capacity, o.starts_at, o.ends_at)
+        for o in occupancies
+        if o.table_id in by_id and o.table_id not in removed_set
+    ]
+    assigned.extend((by_id[table_id].capacity, new_start, booking.ends_at) for table_id in add_ids)
+    if not capacity_sufficient(
+        party_size=booking.party_size,
+        assigned=assigned,
+        interval_start=new_start,
+        interval_end=booking.ends_at,
+    ):
+        total = sum(by_id[table_id].capacity for table_id in new_ids)
+        raise BookingRuleViolationError(
+            f"insufficient capacity: party of {booking.party_size} exceeds the {total} seats "
+            "of the selected table(s)"
+        )
+    if is_open:
+        live_capacity = sum(by_id[table_id].capacity for table_id in new_ids)
+        if live_capacity < booking.party_size:
+            raise BookingRuleViolationError("insufficient live capacity for the party size")
+    # Apply the plan delta.
+    for occupancy in occupancies:
+        if occupancy.table_id in removed_set:
+            segment = truncate_segment_at(
+                Segment(occupancy.starts_at, occupancy.ends_at, occupancy.is_active), now
+            )
+            occupancy.starts_at = segment.starts_at
+            occupancy.ends_at = segment.ends_at
+            occupancy.is_active = False
+            occupancy.updated_at = now
+    for table_id in add_ids:
+        session.add(
+            TableOccupancy(
+                venue_id=venue_id,
+                table_id=table_id,
+                kind="BOOKING",
+                booking_id=booking_id,
+                starts_at=new_start,
+                ends_at=booking.ends_at,
+                is_active=True,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+    # Apply the live delta for OPEN, keeping the live set in lockstep with the plan.
+    if is_open:
+        if remove_ids:
+            await session.execute(
+                delete(BookingLiveTable).where(
+                    BookingLiveTable.venue_id == venue_id,
+                    BookingLiveTable.booking_id == booking_id,
+                    BookingLiveTable.table_id.in_(remove_ids),
+                )
+            )
+        for table_id in add_ids:
+            session.add(
+                BookingLiveTable(
+                    venue_id=venue_id,
+                    booking_id=booking_id,
+                    business_date=booking.business_date,
+                    table_id=table_id,
+                    live_since=now,
+                )
+            )
+    if add_ids and remove_ids:
+        event_type = "TABLE_REPLACED"
+    elif add_ids:
+        event_type = "TABLE_ADDED"
+    else:
+        event_type = "TABLE_REMOVED"
+    booking.version += 1
+    booking.updated_at = now
+    session.add(
+        _event(
+            venue_id=venue_id,
+            booking_id=booking_id,
+            event_type=event_type,
+            actor_type="ADMIN",
+            admin_session_id=admin_session_id,
+            created_at=now,
+            payload={
+                "from_table_ids": sorted(current_ids),
+                "to_table_ids": new_ids,
+                "table_ids": new_ids,
+                "live": is_open,
+            },
+        )
+    )
+    await session.flush()
+    await publish(session, venue_id=venue_id, event_type=BOOKING_UPDATED, ids=[booking_id])
+    return booking
+
+
+async def mutate_booking_tables(
+    session: AsyncSession,
+    *,
+    venue_id: int,
+    booking_id: int,
+    expected_version: int,
+    add_ids: list[int],
+    remove_ids: list[int],
+    admin_session_id: int | None,
+) -> BookingView:
+    """Add/remove tables atomically, mapping constraint races to error codes (§32.5).
+
+    A caller supplies one of the three shapes: pure add, pure remove, or a
+    replace/reseat (both lists). Every shape is one transaction, so a conflict on
+    one table rolls the whole operation back and leaves the old assignment.
+    """
+    if not add_ids and not remove_ids:
+        raise BookingRuleViolationError("no table change requested")
+    for attempt in range(MAX_ATTEMPTS):
+        try:
+            async with session.begin():
+                booking = await _mutate_tables_once(
+                    session,
+                    venue_id=venue_id,
+                    booking_id=booking_id,
+                    expected_version=expected_version,
+                    add_ids=add_ids,
+                    remove_ids=remove_ids,
+                    admin_session_id=admin_session_id,
+                )
+            return await view_of(session, booking)
+        except DBAPIError as exc:
+            state = _sqlstate(exc)
+            if state in _RETRYABLE_SQLSTATES and attempt + 1 < MAX_ATTEMPTS:
+                continue
+            if state == "23P01":
+                raise BookingConflictError([]) from exc
+            if state == "23505" and "booking_live_tables" in str(exc.orig):
+                raise TableLiveConflictError() from exc
+            if state == _LOCK_TIMEOUT_SQLSTATE:
+                raise ServiceUnavailableError() from exc
+            raise
+    raise ServiceUnavailableError()  # pragma: no cover - the loop always returns or raises
+
+
+async def add_booking_tables(
+    session: AsyncSession,
+    *,
+    venue_id: int,
+    booking_id: int,
+    expected_version: int,
+    table_ids: list[int],
+    admin_session_id: int | None,
+) -> BookingView:
+    """Add one or more tables to a booking (§20.1/§20.2)."""
+    return await mutate_booking_tables(
+        session,
+        venue_id=venue_id,
+        booking_id=booking_id,
+        expected_version=expected_version,
+        add_ids=list(table_ids),
+        remove_ids=[],
+        admin_session_id=admin_session_id,
+    )
+
+
+async def remove_booking_table(
+    session: AsyncSession,
+    *,
+    venue_id: int,
+    booking_id: int,
+    expected_version: int,
+    table_id: int,
+    admin_session_id: int | None,
+) -> BookingView:
+    """Remove one table from a booking, keeping at least one seat (§20.5)."""
+    return await mutate_booking_tables(
+        session,
+        venue_id=venue_id,
+        booking_id=booking_id,
+        expected_version=expected_version,
+        add_ids=[],
+        remove_ids=[table_id],
+        admin_session_id=admin_session_id,
+    )
+
+
+async def replace_booking_tables(
+    session: AsyncSession,
+    *,
+    venue_id: int,
+    booking_id: int,
+    expected_version: int,
+    from_table_ids: list[int],
+    to_table_ids: list[int],
+    admin_session_id: int | None,
+) -> BookingView:
+    """Atomically replace/reseat a set of tables, `remove old + add new` (§20.6)."""
+    return await mutate_booking_tables(
+        session,
+        venue_id=venue_id,
+        booking_id=booking_id,
+        expected_version=expected_version,
+        add_ids=list(to_table_ids),
+        remove_ids=list(from_table_ids),
+        admin_session_id=admin_session_id,
+    )
 
 
 # --- list / history ---------------------------------------------------------

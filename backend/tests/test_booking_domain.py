@@ -218,6 +218,62 @@ def test_capacity_property_matches_direct_sum(tables: list[int], party: int) -> 
     ) == (party <= sum(tables))
 
 
+def test_multitable_capacity_sweep_across_segments() -> None:
+    """A multi-table booking whose sets differ across sub-intervals is swept on
+    every boundary, not just the union of the endpoints (§14, §55)."""
+    start, end = _dt(2, 20), _dt(2, 23)
+    # Table A covers the whole interval; table B only the first hour. A party of
+    # 4 fits in [20:00, 21:00) but not in the uncovered tail.
+    assert not capacity_sufficient(
+        party_size=4,
+        assigned=[(2, start, end), (2, start, _dt(2, 21))],
+        interval_start=start,
+        interval_end=end,
+    )
+    assert capacity_sufficient(
+        party_size=4,
+        assigned=[(4, start, end), (2, _dt(2, 22), end)],
+        interval_start=start,
+        interval_end=end,
+    )
+
+
+@given(
+    windows=st.lists(st.tuples(st.integers(0, 20), st.integers(1, 20)), min_size=1, max_size=5),
+    caps=st.lists(st.integers(min_value=1, max_value=8), min_size=1, max_size=5),
+    party=st.integers(min_value=1, max_value=40),
+)
+def test_capacity_sweep_property_matches_bruteforce(
+    windows: list[tuple[int, int]], caps: list[int], party: int
+) -> None:
+    """The boundary sweep equals a brute-force per-minute cover check (§14, §55)."""
+    base = _dt(2, 20)
+    end = base + timedelta(minutes=25)
+    assigned = []
+    for (offset, length), capacity in zip(windows, caps, strict=False):
+        seg_start = base + timedelta(minutes=offset)
+        seg_end = base + timedelta(minutes=min(offset + length, 25))
+        if seg_end <= seg_start:
+            continue
+        assigned.append((capacity, seg_start, seg_end))
+    expected = True
+    for minute in range(25):
+        left = base + timedelta(minutes=minute)
+        right = base + timedelta(minutes=minute + 1)
+        total = sum(
+            cap for cap, seg_start, seg_end in assigned if seg_start <= left and right <= seg_end
+        )
+        if total < party:
+            expected = False
+            break
+    assert (
+        capacity_sufficient(
+            party_size=party, assigned=assigned, interval_start=base, interval_end=end
+        )
+        == expected
+    )
+
+
 # --- state machine ----------------------------------------------------------
 
 

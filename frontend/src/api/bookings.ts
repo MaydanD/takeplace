@@ -9,6 +9,8 @@ export type ChangeTime = components["schemas"]["BookingChangeTime"];
 export type BookingFilters = NonNullable<
   operations["get_bookings_api_admin_v1_bookings_get"]["parameters"]["query"]
 >;
+export type TableAdd = components["schemas"]["BookingTableAdd"];
+export type TableReplace = components["schemas"]["BookingTableReplace"];
 const base = "/api/admin/v1/bookings";
 
 export function fetchBookings(filters: BookingFilters, signal?: AbortSignal) {
@@ -29,6 +31,14 @@ export const cancelBooking = (id: number, body: BookingCancel) =>
   apiRequest<Booking>(`${base}/${id}/cancel`, { method: "POST", body });
 export const changeTime = (id: number, body: ChangeTime) =>
   apiRequest<Booking>(`${base}/${id}/change-time`, { method: "POST", body });
+export const addTables = (id: number, body: TableAdd) =>
+  apiRequest<Booking>(`${base}/${id}/tables`, { method: "POST", body });
+export const removeTable = (id: number, table_id: number, expected_version: number) =>
+  apiRequest<Booking>(`${base}/${id}/tables/${table_id}?expected_version=${expected_version}`, {
+    method: "DELETE",
+  });
+export const replaceTables = (id: number, body: TableReplace) =>
+  apiRequest<Booking>(`${base}/${id}/replace-table`, { method: "POST", body });
 export const lifecycleBooking = (id: number, action: string, expected_version: number) =>
   apiRequest<Booking>(`${base}/${id}/${action}`, { method: "POST", body: { expected_version } });
 
@@ -64,6 +74,8 @@ export function bookingError(error: unknown): string {
     TABLE_NOT_BOOKABLE: "Стол сейчас недоступен для бронирования.",
     HALL_NOT_BOOKABLE: "Зал сейчас недоступен для бронирования.",
     BOOKING_INVALID_STATE: "Статус брони изменился. Это действие больше недоступно.",
+    CAPACITY_CHANGE_BLOCKED:
+      "Изменение вместимости затронет существующие брони. Перенесите их и повторите.",
     IDEMPOTENCY_KEY_REUSED:
       "Ключ создания уже использован с другими данными. Обновите книгу и проверьте созданную бронь.",
     RATE_LIMITED: "Слишком много запросов. Подождите и повторите.",

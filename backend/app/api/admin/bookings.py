@@ -35,6 +35,8 @@ from app.api.admin.schemas import (
     BookingLifecycle,
     BookingListResponse,
     BookingSummary,
+    BookingTableAdd,
+    BookingTableReplace,
 )
 from app.api.errors import (
     ApiError,
@@ -51,6 +53,7 @@ from app.api.errors import (
 from app.services.bookings import (
     AdminBookingInput,
     BookingView,
+    add_booking_tables,
     cancel_booking,
     change_booking_time,
     create_admin_booking,
@@ -59,6 +62,8 @@ from app.services.bookings import (
     lifecycle_booking,
     list_bookings,
     list_events,
+    remove_booking_table,
+    replace_booking_tables,
     view_of,
 )
 from app.services.errors import (
@@ -284,7 +289,7 @@ async def post_change_time(
     context: AuthContextDep,
     session: SessionDep,
 ) -> BookingSummary:
-    """Reschedule a NEW/WAITING booking and rewrite its shift snapshot (§5.5)."""
+    """Reschedule a NEW/WAITING booking, or change an end time (§5.5, §26)."""
     with _translating_errors():
         view = await change_booking_time(
             session,
@@ -293,6 +298,80 @@ async def post_change_time(
             expected_version=payload.expected_version,
             starts_at=payload.starts_at,
             ends_at=payload.ends_at,
+            admin_session_id=context.session.id,
+        )
+    return BookingSummary.from_view(view)
+
+
+@router.post(
+    "/{booking_id}/tables",
+    response_model=BookingSummary,
+    dependencies=[Depends(require_trusted_origin)],
+)
+async def post_booking_tables(
+    booking_id: int,
+    payload: BookingTableAdd,
+    context: AuthContextDep,
+    session: SessionDep,
+) -> BookingSummary:
+    """Add tables to a NEW/WAITING booking (plan) or OPEN booking (live) (§20)."""
+    with _translating_errors():
+        view = await add_booking_tables(
+            session,
+            venue_id=context.venue_id,
+            booking_id=booking_id,
+            expected_version=payload.expected_version,
+            table_ids=list(payload.table_ids),
+            admin_session_id=context.session.id,
+        )
+    return BookingSummary.from_view(view)
+
+
+@router.delete(
+    "/{booking_id}/tables/{table_id}",
+    response_model=BookingSummary,
+    dependencies=[Depends(require_trusted_origin)],
+)
+async def delete_booking_table(
+    booking_id: int,
+    table_id: int,
+    context: AuthContextDep,
+    session: SessionDep,
+    expected_version: Annotated[int, Query(ge=1)],
+) -> BookingSummary:
+    """Remove one table from a NEW/WAITING booking (plan) or OPEN booking (§20.5)."""
+    with _translating_errors():
+        view = await remove_booking_table(
+            session,
+            venue_id=context.venue_id,
+            booking_id=booking_id,
+            expected_version=expected_version,
+            table_id=table_id,
+            admin_session_id=context.session.id,
+        )
+    return BookingSummary.from_view(view)
+
+
+@router.post(
+    "/{booking_id}/replace-table",
+    response_model=BookingSummary,
+    dependencies=[Depends(require_trusted_origin)],
+)
+async def post_replace_table(
+    booking_id: int,
+    payload: BookingTableReplace,
+    context: AuthContextDep,
+    session: SessionDep,
+) -> BookingSummary:
+    """Atomically replace/reseat tables, `remove old + add new` (§20.6)."""
+    with _translating_errors():
+        view = await replace_booking_tables(
+            session,
+            venue_id=context.venue_id,
+            booking_id=booking_id,
+            expected_version=payload.expected_version,
+            from_table_ids=list(payload.from_table_ids),
+            to_table_ids=list(payload.to_table_ids),
             admin_session_id=context.session.id,
         )
     return BookingSummary.from_view(view)

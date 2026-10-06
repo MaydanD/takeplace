@@ -137,7 +137,7 @@
         "type": "object"
       },
       "BookingChangeTime": {
-        "description": "Move a NEW/WAITING booking to a new interval (§5.5, §32.3).",
+        "description": "Move a NEW/WAITING booking, or change only the end of any booking (§26).\n\nOmitting ``starts_at`` (or sending the booking's current start) performs an\nend-only change: allowed for NEW/WAITING and for OPEN before its plan end.",
         "properties": {
           "ends_at": {
             "format": "date-time",
@@ -150,14 +150,20 @@
             "type": "integer"
           },
           "starts_at": {
-            "format": "date-time",
-            "title": "Starts At",
-            "type": "string"
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts At"
           }
         },
         "required": [
           "expected_version",
-          "starts_at",
           "ends_at"
         ],
         "title": "BookingChangeTime",
@@ -668,6 +674,64 @@
           "updated_at"
         ],
         "title": "BookingSummary",
+        "type": "object"
+      },
+      "BookingTableAdd": {
+        "additionalProperties": false,
+        "description": "Add one or more tables to a NEW/WAITING/OPEN booking (§20).",
+        "properties": {
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "table_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Table Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "expected_version",
+          "table_ids"
+        ],
+        "title": "BookingTableAdd",
+        "type": "object"
+      },
+      "BookingTableReplace": {
+        "additionalProperties": false,
+        "description": "Atomically replace/reseat a set of tables, `remove old + add new` (§20.6).\n\nA single-table replace sends ``from_table_ids=[old]``/``to_table_ids=[new]``;\na full reseat sends the whole current and target sets.",
+        "properties": {
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "from_table_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 50,
+            "title": "From Table Ids",
+            "type": "array"
+          },
+          "to_table_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 50,
+            "title": "To Table Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "expected_version"
+        ],
+        "title": "BookingTableReplace",
         "type": "object"
       },
       "BusinessDayResponse": {
@@ -1223,6 +1287,32 @@
             "title": "Online Abuse Alerts",
             "type": "integer"
           },
+          "outbox_oldest_pending_age_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outbox Oldest Pending Age Seconds"
+          },
+          "outbox_pending": {
+            "default": 0,
+            "title": "Outbox Pending",
+            "type": "integer"
+          },
+          "outbox_processing": {
+            "default": 0,
+            "title": "Outbox Processing",
+            "type": "integer"
+          },
+          "outbox_retry": {
+            "default": 0,
+            "title": "Outbox Retry",
+            "type": "integer"
+          },
           "outbox_unacknowledged_dead": {
             "default": 0,
             "title": "Outbox Unacknowledged Dead",
@@ -1244,6 +1334,17 @@
             ],
             "title": "Timezone Capability",
             "type": "string"
+          },
+          "worker_heartbeat_age_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Worker Heartbeat Age Seconds"
           }
         },
         "required": [
@@ -1252,6 +1353,94 @@
           "environment"
         ],
         "title": "OpsResponse",
+        "type": "object"
+      },
+      "OutboxDeadJob": {
+        "description": "A DEAD outbox job for the operational banner/list (§6.11, §49).",
+        "properties": {
+          "acknowledged_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acknowledged At"
+          },
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Error"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "status",
+          "attempts",
+          "created_at",
+          "expires_at",
+          "last_error",
+          "acknowledged_at"
+        ],
+        "title": "OutboxDeadJob",
+        "type": "object"
+      },
+      "OutboxDeadList": {
+        "description": "The venue's DEAD jobs plus the unacknowledged count for the banner.",
+        "properties": {
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/OutboxDeadJob"
+            },
+            "title": "Jobs",
+            "type": "array"
+          },
+          "unacknowledged": {
+            "title": "Unacknowledged",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "jobs",
+          "unacknowledged"
+        ],
+        "title": "OutboxDeadList",
         "type": "object"
       },
       "PublicAvailabilityResponse": {
@@ -2218,6 +2407,99 @@
         "title": "TextElement",
         "type": "object"
       },
+      "VKIntegrationSummary": {
+        "description": "Secret-free VK integration view. Never exposes the access token (§38.5).",
+        "properties": {
+          "community_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Community Id"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "has_token": {
+            "title": "Has Token",
+            "type": "boolean"
+          },
+          "peer_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peer Id"
+          }
+        },
+        "required": [
+          "enabled",
+          "community_id",
+          "peer_id",
+          "has_token"
+        ],
+        "title": "VKIntegrationSummary",
+        "type": "object"
+      },
+      "VKIntegrationUpdate": {
+        "description": "Configure the venue's VK integration (§38.5).\n\n``access_token`` is optional on update: omitting it keeps the stored token, so\ntoggling ``enabled`` or changing the peer does not require re-entering the\nsecret. A supplied token is encrypted at rest and never read back.",
+        "properties": {
+          "access_token": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Token"
+          },
+          "community_id": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Community Id"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "peer_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Peer Id"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "VKIntegrationUpdate",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -3035,7 +3317,7 @@
     },
     "/api/admin/v1/bookings/{booking_id}/change-time": {
       "post": {
-        "description": "Reschedule a NEW/WAITING booking and rewrite its shift snapshot (§5.5).",
+        "description": "Reschedule a NEW/WAITING booking, or change an end time (§5.5, §26).",
         "operationId": "post_change_time_api_admin_v1_bookings__booking_id__change_time_post",
         "parameters": [
           {
@@ -3228,6 +3510,174 @@
           }
         },
         "summary": "Post Open",
+        "tags": [
+          "admin-bookings"
+        ]
+      }
+    },
+    "/api/admin/v1/bookings/{booking_id}/replace-table": {
+      "post": {
+        "description": "Atomically replace/reseat tables, `remove old + add new` (§20.6).",
+        "operationId": "post_replace_table_api_admin_v1_bookings__booking_id__replace_table_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "title": "Booking Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BookingTableReplace"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Replace Table",
+        "tags": [
+          "admin-bookings"
+        ]
+      }
+    },
+    "/api/admin/v1/bookings/{booking_id}/tables": {
+      "post": {
+        "description": "Add tables to a NEW/WAITING booking (plan) or OPEN booking (live) (§20).",
+        "operationId": "post_booking_tables_api_admin_v1_bookings__booking_id__tables_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "title": "Booking Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BookingTableAdd"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Post Booking Tables",
+        "tags": [
+          "admin-bookings"
+        ]
+      }
+    },
+    "/api/admin/v1/bookings/{booking_id}/tables/{table_id}": {
+      "delete": {
+        "description": "Remove one table from a NEW/WAITING booking (plan) or OPEN booking (§20.5).",
+        "operationId": "delete_booking_table_api_admin_v1_bookings__booking_id__tables__table_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "booking_id",
+            "required": true,
+            "schema": {
+              "title": "Booking Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "table_id",
+            "required": true,
+            "schema": {
+              "title": "Table Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_version",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "Expected Version",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BookingSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Booking Table",
         "tags": [
           "admin-bookings"
         ]
@@ -3611,6 +4061,68 @@
         ]
       }
     },
+    "/api/admin/v1/integrations/vk": {
+      "get": {
+        "description": "Return this venue's VK integration as a secret-free summary.",
+        "operationId": "get_vk_integration_api_admin_v1_integrations_vk_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VKIntegrationSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Vk Integration",
+        "tags": [
+          "admin-integrations"
+        ]
+      },
+      "put": {
+        "description": "Upsert this venue's VK integration, encrypting any supplied token (§38.5).",
+        "operationId": "put_vk_integration_api_admin_v1_integrations_vk_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VKIntegrationUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VKIntegrationSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Vk Integration",
+        "tags": [
+          "admin-integrations"
+        ]
+      }
+    },
     "/api/admin/v1/me": {
       "get": {
         "description": "Return the authenticated admin and its venue.\n\nThe venue is derived from the session, never from a client-supplied id.",
@@ -3630,6 +4142,114 @@
         "summary": "Me",
         "tags": [
           "admin-account"
+        ]
+      }
+    },
+    "/api/admin/v1/outbox/dead": {
+      "get": {
+        "description": "List this venue's DEAD outbox jobs plus the unacknowledged count.",
+        "operationId": "list_dead_api_admin_v1_outbox_dead_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutboxDeadList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Dead",
+        "tags": [
+          "admin-outbox"
+        ]
+      }
+    },
+    "/api/admin/v1/outbox/{outbox_id}/acknowledge": {
+      "post": {
+        "description": "Acknowledge a DEAD job so it stops degrading ``/health/ops`` (§38.3).",
+        "operationId": "acknowledge_dead_api_admin_v1_outbox__outbox_id__acknowledge_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "outbox_id",
+            "required": true,
+            "schema": {
+              "title": "Outbox Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutboxDeadJob"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Acknowledge Dead",
+        "tags": [
+          "admin-outbox"
+        ]
+      }
+    },
+    "/api/admin/v1/outbox/{outbox_id}/retry": {
+      "post": {
+        "description": "Requeue a DEAD/RETRY job for immediate retry without extending its TTL (§38.3).",
+        "operationId": "retry_dead_api_admin_v1_outbox__outbox_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "outbox_id",
+            "required": true,
+            "schema": {
+              "title": "Outbox Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OutboxDeadJob"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Retry Dead",
+        "tags": [
+          "admin-outbox"
         ]
       }
     },

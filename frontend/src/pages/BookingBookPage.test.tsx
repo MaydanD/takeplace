@@ -17,21 +17,21 @@ const booking = {
   guest_name: "Анна",
   guest_phone_raw: "+79990000000",
   guest_phone_normalized: "+79990000000",
-  guest_comment: null,
+  guest_comment: null as string | null,
   starts_at: "2026-10-05T15:00:00Z",
   ends_at: "2026-10-05T17:00:00Z",
   shift_starts_at: "2026-10-05T13:00:00Z",
   shift_ends_at: "2026-10-05T23:00:00Z",
   version: 1,
   table_ids: [10],
-  live_table_ids: [],
+  live_table_ids: [] as number[],
   can_investigate_network: true,
-  opened_at: null,
-  canceled_at: null,
-  closed_at: null,
-  waiting_at: null,
-  cancellation_reason: null,
-  cancellation_note: null,
+  opened_at: null as string | null,
+  canceled_at: null as string | null,
+  closed_at: null as string | null,
+  waiting_at: null as string | null,
+  cancellation_reason: null as string | null,
+  cancellation_note: null as string | null,
   created_at: "2026-10-04T12:00:00Z",
   updated_at: "2026-10-04T12:00:00Z",
 };
@@ -100,6 +100,41 @@ function routes() {
     [`GET ${root}/bookings/7`]: { status: 200, body: booking },
     [`GET ${root}/bookings`]: { status: 200, body: { items: [booking], next_cursor: null } },
   };
+}
+const table2 = { ...table, id: 11, number: "2", capacity: 2 };
+const table3 = { ...table, id: 12, number: "3", capacity: 2 };
+const multiBooking = { ...booking, table_ids: [10, 11] };
+const openBooking = {
+  ...booking,
+  status: "OPEN",
+  table_ids: [10, 11],
+  live_table_ids: [10, 11],
+  opened_at: "2026-10-05T15:05:00Z",
+  version: 3,
+};
+function multiRoutes(record: typeof booking, tables = [table, table2, table3]) {
+  return {
+    ...routes(),
+    [`GET ${root}/tables`]: { status: 200, body: { tables } },
+    [`GET ${root}/halls/1`]: {
+      status: 200,
+      body: {
+        id: 1,
+        name: "Основной",
+        canvas_width: 640,
+        canvas_height: 480,
+        static_elements: [],
+        tables,
+      },
+    },
+    [`GET ${root}/bookings/7`]: { status: 200, body: record },
+    [`GET ${root}/bookings`]: { status: 200, body: { items: [record], next_cursor: null } },
+  };
+}
+function mutationCalls(fetch: ReturnType<typeof mockFetch>, method: string, path: string) {
+  return fetch.mock.calls.filter(
+    ([url, init]) => init?.method === method && String(url).includes(path),
+  );
 }
 afterEach(() => {
   vi.restoreAllMocks();
@@ -219,6 +254,138 @@ describe("Booking Book", () => {
       open_immediately: true,
       guest_phone_raw: null,
     });
+  });
+  it("renders every assigned table and the summed capacity", async () => {
+    vi.stubGlobal("fetch", mockFetch(multiRoutes(multiBooking)));
+    renderWithProviders(<BookingBookPage />);
+    await userEvent.click(await screen.findByRole("button", { name: /№42/ }));
+    const card = await screen.findByLabelText("Карточка брони");
+    expect(await within(card).findByText(/Столы в плане: 1, 2/)).toBeInTheDocument();
+    expect(within(card).getByText(/мест 6/)).toBeInTheDocument();
+  });
+  it("adds a table with the current expected_version", async () => {
+    const fetch = mockFetch({
+      [`POST ${root}/bookings/7/tables`]: { status: 200, body: { ...multiBooking, version: 2 } },
+      ...multiRoutes(multiBooking),
+    });
+    vi.stubGlobal("fetch", fetch);
+    renderWithProviders(<BookingBookPage />);
+    await userEvent.click(await screen.findByRole("button", { name: /№42/ }));
+    const card = await screen.findByLabelText("Карточка брони");
+    await userEvent.selectOptions(await within(card).findByLabelText("Добавить стол"), "12");
+    await userEvent.click(within(card).getByRole("button", { name: "Добавить стол" }));
+    await waitFor(() => expect(mutationCalls(fetch, "POST", "/7/tables")).toHaveLength(1));
+    const body = JSON.parse(String(mutationCalls(fetch, "POST", "/7/tables")[0]?.[1]?.body));
+    expect(body).toEqual({ expected_version: 1, table_ids: [12] });
+  });
+  it("removes one table with expected_version in the query", async () => {
+    const fetch = mockFetch({
+      [`DELETE ${root}/bookings/7/tables/11`]: {
+        status: 200,
+        body: { ...multiBooking, version: 2 },
+      },
+      ...multiRoutes(multiBooking),
+    });
+    vi.stubGlobal("fetch", fetch);
+    renderWithProviders(<BookingBookPage />);
+    await userEvent.click(await screen.findByRole("button", { name: /№42/ }));
+    const card = await screen.findByLabelText("Карточка брони");
+    const manager = await within(card).findByLabelText("Управление столами");
+    const remove = within(manager).getAllByRole("button", { name: "Убрать" });
+    expect(remove).toHaveLength(2);
+    await userEvent.click(remove[1]!);
+    await waitFor(() => expect(mutationCalls(fetch, "DELETE", "/7/tables/11")).toHaveLength(1));
+    expect(String(mutationCalls(fetch, "DELETE", "/7/tables/11")[0]?.[0])).toContain(
+      "expected_version=1",
+    );
+  });
+  it("replaces a table atomically through replace-table", async () => {
+    const fetch = mockFetch({
+      [`POST ${root}/bookings/7/replace-table`]: {
+        status: 200,
+        body: { ...multiBooking, version: 2 },
+      },
+      ...multiRoutes(multiBooking),
+    });
+    vi.stubGlobal("fetch", fetch);
+    renderWithProviders(<BookingBookPage />);
+    await userEvent.click(await screen.findByRole("button", { name: /№42/ }));
+    const card = await screen.findByLabelText("Карточка брони");
+    await userEvent.selectOptions(await within(card).findByLabelText("Заменить стол"), "11");
+    await userEvent.selectOptions(within(card).getByLabelText("На стол"), "12");
+    await userEvent.click(within(card).getByRole("button", { name: "Заменить стол" }));
+    await waitFor(() => expect(mutationCalls(fetch, "POST", "/replace-table")).toHaveLength(1));
+    const body = JSON.parse(String(mutationCalls(fetch, "POST", "/replace-table")[0]?.[1]?.body));
+    expect(body).toEqual({
+      expected_version: 1,
+      from_table_ids: [11],
+      to_table_ids: [12],
+    });
+  });
+  it("reseats OPEN guests to a new live set", async () => {
+    const fetch = mockFetch({
+      [`POST ${root}/bookings/7/replace-table`]: {
+        status: 200,
+        body: { ...openBooking, version: 4 },
+      },
+      ...multiRoutes(openBooking),
+    });
+    vi.stubGlobal("fetch", fetch);
+    renderWithProviders(<BookingBookPage />);
+    await userEvent.click(await screen.findByRole("button", { name: /№42/ }));
+    const card = await screen.findByLabelText("Карточка брони");
+    await userEvent.click(await within(card).findByRole("checkbox", { name: /Стол 1 / }));
+    await userEvent.click(within(card).getByRole("checkbox", { name: /Стол 3 / }));
+    await userEvent.click(within(card).getByRole("button", { name: "Пересадить гостей" }));
+    await waitFor(() => expect(mutationCalls(fetch, "POST", "/replace-table")).toHaveLength(1));
+    const body = JSON.parse(String(mutationCalls(fetch, "POST", "/replace-table")[0]?.[1]?.body));
+    expect(body).toEqual({
+      expected_version: 3,
+      from_table_ids: [10],
+      to_table_ids: [12],
+    });
+  });
+  it("changes an OPEN end time without moving the start", async () => {
+    const fetch = mockFetch({
+      [`POST ${root}/bookings/7/change-time`]: {
+        status: 200,
+        body: { ...openBooking, version: 4 },
+      },
+      ...multiRoutes(openBooking),
+    });
+    vi.stubGlobal("fetch", fetch);
+    renderWithProviders(<BookingBookPage />);
+    await userEvent.click(await screen.findByRole("button", { name: /№42/ }));
+    const card = await screen.findByLabelText("Карточка брони");
+    const end = await within(card).findByLabelText("Новый конец");
+    fireEvent.change(end, { target: { value: "2026-10-05T21:00" } });
+    await userEvent.click(within(card).getByRole("button", { name: "Изменить конец" }));
+    await waitFor(() => expect(mutationCalls(fetch, "POST", "/change-time")).toHaveLength(1));
+    const body = JSON.parse(String(mutationCalls(fetch, "POST", "/change-time")[0]?.[1]?.body));
+    expect(body).not.toHaveProperty("starts_at");
+    expect(body.expected_version).toBe(3);
+    expect(body.ends_at).toBeTruthy();
+  });
+  it("surfaces BOOKING_STALE on a table mutation and refetches", async () => {
+    let stale = false;
+    const fallback = mockFetch(multiRoutes(multiBooking));
+    const fetch = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST" && String(url).includes("/7/tables")) {
+        stale = true;
+        return Response.json({ code: "BOOKING_STALE", detail: "stale" }, { status: 409 });
+      }
+      if (stale && String(url) === `${root}/bookings/7`)
+        return Response.json({ ...multiBooking, version: 5 });
+      return fallback(url, init);
+    });
+    vi.stubGlobal("fetch", fetch);
+    renderWithProviders(<BookingBookPage />);
+    await userEvent.click(await screen.findByRole("button", { name: /№42/ }));
+    const card = await screen.findByLabelText("Карточка брони");
+    await userEvent.selectOptions(await within(card).findByLabelText("Добавить стол"), "12");
+    await userEvent.click(within(card).getByRole("button", { name: "Добавить стол" }));
+    expect(await screen.findByText(/Загружена новая версия/)).toBeInTheDocument();
+    expect(await within(card).findByText(/версия 5/)).toBeInTheDocument();
   });
   it("searches exact phone/number and opens network investigation across dates", async () => {
     const fetch = mockFetch(routes());

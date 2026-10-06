@@ -168,7 +168,7 @@ export interface paths {
         put?: never;
         /**
          * Post Change Time
-         * @description Reschedule a NEW/WAITING booking and rewrite its shift snapshot (§5.5).
+         * @description Reschedule a NEW/WAITING booking, or change an end time (§5.5, §26).
          */
         post: operations["post_change_time_api_admin_v1_bookings__booking_id__change_time_post"];
         delete?: never;
@@ -226,6 +226,66 @@ export interface paths {
         /** Post Open */
         post: operations["post_open_api_admin_v1_bookings__booking_id__open_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/v1/bookings/{booking_id}/replace-table": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Replace Table
+         * @description Atomically replace/reseat tables, `remove old + add new` (§20.6).
+         */
+        post: operations["post_replace_table_api_admin_v1_bookings__booking_id__replace_table_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/v1/bookings/{booking_id}/tables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Post Booking Tables
+         * @description Add tables to a NEW/WAITING booking (plan) or OPEN booking (live) (§20).
+         */
+        post: operations["post_booking_tables_api_admin_v1_bookings__booking_id__tables_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/v1/bookings/{booking_id}/tables/{table_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Booking Table
+         * @description Remove one table from a NEW/WAITING booking (plan) or OPEN booking (§20.5).
+         */
+        delete: operations["delete_booking_table_api_admin_v1_bookings__booking_id__tables__table_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -362,6 +422,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/v1/integrations/vk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Vk Integration
+         * @description Return this venue's VK integration as a secret-free summary.
+         */
+        get: operations["get_vk_integration_api_admin_v1_integrations_vk_get"];
+        /**
+         * Put Vk Integration
+         * @description Upsert this venue's VK integration, encrypting any supplied token (§38.5).
+         */
+        put: operations["put_vk_integration_api_admin_v1_integrations_vk_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/v1/me": {
         parameters: {
             query?: never;
@@ -378,6 +462,66 @@ export interface paths {
         get: operations["me_api_admin_v1_me_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/v1/outbox/dead": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Dead
+         * @description List this venue's DEAD outbox jobs plus the unacknowledged count.
+         */
+        get: operations["list_dead_api_admin_v1_outbox_dead_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/v1/outbox/{outbox_id}/acknowledge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Acknowledge Dead
+         * @description Acknowledge a DEAD job so it stops degrading ``/health/ops`` (§38.3).
+         */
+        post: operations["acknowledge_dead_api_admin_v1_outbox__outbox_id__acknowledge_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/v1/outbox/{outbox_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Retry Dead
+         * @description Requeue a DEAD/RETRY job for immediate retry without extending its TTL (§38.3).
+         */
+        post: operations["retry_dead_api_admin_v1_outbox__outbox_id__retry_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -798,7 +942,10 @@ export interface components {
         };
         /**
          * BookingChangeTime
-         * @description Move a NEW/WAITING booking to a new interval (§5.5, §32.3).
+         * @description Move a NEW/WAITING booking, or change only the end of any booking (§26).
+         *
+         *     Omitting ``starts_at`` (or sending the booking's current start) performs an
+         *     end-only change: allowed for NEW/WAITING and for OPEN before its plan end.
          */
         BookingChangeTime: {
             /**
@@ -808,11 +955,8 @@ export interface components {
             ends_at: string;
             /** Expected Version */
             expected_version: number;
-            /**
-             * Starts At
-             * Format: date-time
-             */
-            starts_at: string;
+            /** Starts At */
+            starts_at?: string | null;
         };
         /**
          * BookingCreate
@@ -992,6 +1136,31 @@ export interface components {
             version: number;
             /** Waiting At */
             waiting_at: string | null;
+        };
+        /**
+         * BookingTableAdd
+         * @description Add one or more tables to a NEW/WAITING/OPEN booking (§20).
+         */
+        BookingTableAdd: {
+            /** Expected Version */
+            expected_version: number;
+            /** Table Ids */
+            table_ids: number[];
+        };
+        /**
+         * BookingTableReplace
+         * @description Atomically replace/reseat a set of tables, `remove old + add new` (§20.6).
+         *
+         *     A single-table replace sends ``from_table_ids=[old]``/``to_table_ids=[new]``;
+         *     a full reseat sends the whole current and target sets.
+         */
+        BookingTableReplace: {
+            /** Expected Version */
+            expected_version: number;
+            /** From Table Ids */
+            from_table_ids?: number[];
+            /** To Table Ids */
+            to_table_ids?: number[];
         };
         /**
          * BusinessDayResponse
@@ -1194,6 +1363,23 @@ export interface components {
              * @default 0
              */
             online_abuse_alerts: number;
+            /** Outbox Oldest Pending Age Seconds */
+            outbox_oldest_pending_age_seconds?: number | null;
+            /**
+             * Outbox Pending
+             * @default 0
+             */
+            outbox_pending: number;
+            /**
+             * Outbox Processing
+             * @default 0
+             */
+            outbox_processing: number;
+            /**
+             * Outbox Retry
+             * @default 0
+             */
+            outbox_retry: number;
             /**
              * Outbox Unacknowledged Dead
              * @default 0
@@ -1210,6 +1396,46 @@ export interface components {
              * @enum {string}
              */
             timezone_capability: "ok" | "unsupported";
+            /** Worker Heartbeat Age Seconds */
+            worker_heartbeat_age_seconds?: number | null;
+        };
+        /**
+         * OutboxDeadJob
+         * @description A DEAD outbox job for the operational banner/list (§6.11, §49).
+         */
+        OutboxDeadJob: {
+            /** Acknowledged At */
+            acknowledged_at: string | null;
+            /** Attempts */
+            attempts: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Id */
+            id: number;
+            /** Last Error */
+            last_error: string | null;
+            /** Status */
+            status: string;
+            /** Type */
+            type: string;
+        };
+        /**
+         * OutboxDeadList
+         * @description The venue's DEAD jobs plus the unacknowledged count for the banner.
+         */
+        OutboxDeadList: {
+            /** Jobs */
+            jobs: components["schemas"]["OutboxDeadJob"][];
+            /** Unacknowledged */
+            unacknowledged: number;
         };
         /**
          * PublicAvailabilityResponse
@@ -1597,6 +1823,38 @@ export interface components {
              * @default 0
              */
             z_index: number;
+        };
+        /**
+         * VKIntegrationSummary
+         * @description Secret-free VK integration view. Never exposes the access token (§38.5).
+         */
+        VKIntegrationSummary: {
+            /** Community Id */
+            community_id: number | null;
+            /** Enabled */
+            enabled: boolean;
+            /** Has Token */
+            has_token: boolean;
+            /** Peer Id */
+            peer_id: number | null;
+        };
+        /**
+         * VKIntegrationUpdate
+         * @description Configure the venue's VK integration (§38.5).
+         *
+         *     ``access_token`` is optional on update: omitting it keeps the stored token, so
+         *     toggling ``enabled`` or changing the peer does not require re-entering the
+         *     secret. A supplied token is encrypted at rest and never read back.
+         */
+        VKIntegrationUpdate: {
+            /** Access Token */
+            access_token?: string | null;
+            /** Community Id */
+            community_id?: number | null;
+            /** Enabled */
+            enabled: boolean;
+            /** Peer Id */
+            peer_id?: number | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -2129,6 +2387,110 @@ export interface operations {
             };
         };
     };
+    post_replace_table_api_admin_v1_bookings__booking_id__replace_table_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booking_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BookingTableReplace"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookingSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    post_booking_tables_api_admin_v1_bookings__booking_id__tables_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                booking_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BookingTableAdd"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookingSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_booking_table_api_admin_v1_bookings__booking_id__tables__table_id__delete: {
+        parameters: {
+            query: {
+                expected_version: number;
+            };
+            header?: never;
+            path: {
+                booking_id: number;
+                table_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BookingSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     post_undo_open_api_admin_v1_bookings__booking_id__undo_open_post: {
         parameters: {
             query?: never;
@@ -2395,6 +2757,59 @@ export interface operations {
             };
         };
     };
+    get_vk_integration_api_admin_v1_integrations_vk_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VKIntegrationSummary"];
+                };
+            };
+        };
+    };
+    put_vk_integration_api_admin_v1_integrations_vk_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VKIntegrationUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VKIntegrationSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     me_api_admin_v1_me_get: {
         parameters: {
             query?: never;
@@ -2411,6 +2826,88 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MeResponse"];
+                };
+            };
+        };
+    };
+    list_dead_api_admin_v1_outbox_dead_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboxDeadList"];
+                };
+            };
+        };
+    };
+    acknowledge_dead_api_admin_v1_outbox__outbox_id__acknowledge_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                outbox_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboxDeadJob"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_dead_api_admin_v1_outbox__outbox_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                outbox_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OutboxDeadJob"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

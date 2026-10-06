@@ -8,7 +8,16 @@ the admin surface arrive in later stages.
 
 from fastapi import APIRouter
 
-from app.api.admin import account, auth, bookings, halls, schedule, settings, stream
+from app.api.admin import (
+    account,
+    auth,
+    bookings,
+    halls,
+    integrations,
+    schedule,
+    settings,
+    stream,
+)
 
 router = APIRouter(prefix="/api/admin/v1")
 router.include_router(auth.router)
@@ -17,4 +26,5 @@ router.include_router(settings.router)
 router.include_router(schedule.router)
 router.include_router(halls.router)
 router.include_router(bookings.router)
+router.include_router(integrations.router)
 router.include_router(stream.router)

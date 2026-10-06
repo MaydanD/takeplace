@@ -13,6 +13,37 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 from app.db.models import AdminAccount, BookingEvent, Hall, Table, Venue
 from app.domain.layout import StaticElement
 from app.services.bookings import BookingView
+from app.services.vk_integration import VKIntegrationSummary as VKIntegrationSummaryData
+
+
+class VKIntegrationSummary(BaseModel):
+    """Frontend-safe VK configuration state (secret-free summary)."""
+
+    enabled: bool
+    community_id: int | None = Field(default=None, gt=0)
+    peer_id: int | None = Field(default=None, gt=0)
+    has_token: bool
+
+    @classmethod
+    def from_summary(cls, summary: VKIntegrationSummaryData) -> VKIntegrationSummary:
+        return cls(
+            enabled=summary.enabled,
+            community_id=summary.community_id,
+            peer_id=summary.peer_id,
+            has_token=summary.has_token,
+        )
+
+
+class VKIntegrationUpdate(BaseModel):
+    """Admin update payload for venue VK configuration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    community_id: int | None = Field(default=None, gt=0)
+    peer_id: int | None = Field(default=None, gt=0)
+    access_token: str | None = Field(default=None, min_length=1, max_length=8192)
+
 
 # Local schedule times are wall-clock ``HH:MM`` values in the venue timezone, on
 # the 5-minute grid (§5.2). They are never ambiguous instants: the business date
@@ -356,11 +387,36 @@ class BookingCancel(BaseModel):
 
 
 class BookingChangeTime(BaseModel):
-    """Move a NEW/WAITING booking to a new interval (§5.5, §32.3)."""
+    """Move a NEW/WAITING booking, or change only the end of any booking (§26).
+
+    Omitting ``starts_at`` (or sending the booking's current start) performs an
+    end-only change: allowed for NEW/WAITING and for OPEN before its plan end.
+    """
 
     expected_version: int = Field(ge=1)
-    starts_at: AwareDatetime
+    starts_at: AwareDatetime | None = None
     ends_at: AwareDatetime
+
+
+class BookingTableAdd(BaseModel):
+    """Add one or more tables to a NEW/WAITING/OPEN booking (§20)."""
+
+    model_config = ConfigDict(extra="forbid")
+    expected_version: int = Field(ge=1)
+    table_ids: list[int] = Field(min_length=1, max_length=50)
+
+
+class BookingTableReplace(BaseModel):
+    """Atomically replace/reseat a set of tables, `remove old + add new` (§20.6).
+
+    A single-table replace sends ``from_table_ids=[old]``/``to_table_ids=[new]``;
+    a full reseat sends the whole current and target sets.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    expected_version: int = Field(ge=1)
+    from_table_ids: list[int] = Field(default_factory=list, max_length=50)
+    to_table_ids: list[int] = Field(default_factory=list, max_length=50)
 
 
 class BookingSummary(BaseModel):
