@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.errors import ApiError, unauthenticated
 from app.db.session import get_db_session
+from app.security.client_ip import canonical_client_ip
 from app.security.cookies import session_cookie_name
 from app.services.auth import AuthContext, resolve_session
 from app.settings import Settings, get_settings
@@ -40,8 +41,14 @@ async def require_trusted_origin(
 
 
 def client_ip(request: Request) -> str:
-    """Return the client address as seen after trusted-proxy processing."""
-    return request.client.host if request.client else "unknown"
+    """Return the canonical trusted client address (§39.5).
+
+    ``request.client`` is the address the ASGI server resolved after applying the
+    configured trusted-proxy policy; a direct client cannot spoof it through
+    ``X-Forwarded-For``. The value is canonicalised so equivalent IPv6 forms share
+    one rate-limit identity.
+    """
+    return canonical_client_ip(request.client.host if request.client else None)
 
 
 async def get_auth_context(

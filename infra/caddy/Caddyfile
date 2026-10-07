@@ -27,12 +27,16 @@
 	# stream; default proxying is fine.
 	reverse_proxy /health/* api:8000
 
-	# Baseline security headers (PROJECT-SPEC §39.6).
+	# Baseline security headers (PROJECT-SPEC §39.6). The CSP is the same policy the
+	# API applies to its responses: no inline script, same-origin only, and
+	# `frame-ancestors 'none'` so the public/admin SPA cannot be framed.
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self' data:"
 		X-Content-Type-Options "nosniff"
-		Referrer-Policy "strict-origin-when-cross-origin"
 		X-Frame-Options "DENY"
+		Referrer-Policy "same-origin"
+		Permissions-Policy "geolocation=(), microphone=(), camera=()"
 		-Server
 	}
 

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from app.logging_config import REDACTED, redact_processor
+import logging
+
+import structlog
+from app.logging_config import REDACTED, configure_logging, redact_processor
 
 
 def _redact(event: dict[str, object]) -> dict[str, object]:
@@ -53,3 +56,49 @@ def test_nested_mapping_is_redacted() -> None:
 def test_benign_values_are_preserved() -> None:
     result = _redact({"booking_id": 42, "status": "NEW", "count": 3})
     assert result == {"booking_id": 42, "status": "NEW", "count": 3}
+
+
+def test_sensitive_looking_numeric_counters_stay_readable() -> None:
+    # Keys named after what they count must not hide the metric they carry: a
+    # number can never be a token or a phone number, and §60 needs the retention
+    # numbers to be observable in production logs.
+    result = _redact({"cleared_ip_hmacs": 3, "deleted_sessions": 1})
+    assert result == {"cleared_ip_hmacs": 3, "deleted_sessions": 1}
+
+
+def test_sensitive_key_with_a_string_value_still_redacts() -> None:
+    result = _redact({"request_ip_hmac": "a" * 64, "session_token": "x" * 40})
+    assert result == {"request_ip_hmac": REDACTED, "session_token": REDACTED}
+
+
+# --- end-to-end emission through the real logging pipeline ------------------
+#
+# These assert on logs that were actually *captured*, so a policy regression
+# cannot pass just because nothing was recorded (the Stage 12 ``caplog`` pitfall).
+
+
+def test_configured_pipeline_emits_capturable_records(caplog) -> None:
+    configure_logging("INFO", json_output=True)
+    caplog.set_level(logging.INFO)
+    logger = structlog.get_logger("test.caplog")
+    logger.info("worker_job_sent", outbox_id=7)
+    assert caplog.records, "no records were captured; the redaction check would be vacuous"
+    assert "worker_job_sent" in caplog.text
+
+
+def test_secret_and_pii_never_reach_the_captured_records(caplog) -> None:
+    configure_logging("INFO", json_output=True)
+    caplog.set_level(logging.INFO)
+    logger = structlog.get_logger("test.caplog")
+    logger.info(
+        "vk_request",
+        access_token="vk1.a." + "S" * 60,
+        guest_phone_raw="+79991234567",
+        guest_comment="у окна",
+    )
+    assert caplog.records, "no records were captured; the redaction check would be vacuous"
+    text = caplog.text
+    assert "+79991234567" not in text
+    assert "у окна" not in text
+    assert "S" * 40 not in text
+    assert REDACTED in text

@@ -56,6 +56,7 @@ from app.db.models import Hall, Table
 from app.db.session import get_db_session
 from app.domain.schedule import current_business_date
 from app.domain.timezone import load_timezone
+from app.security.client_ip import canonical_client_ip
 from app.security.tokens import hmac_sha256_hex
 from app.services.bookings import create_public_booking
 from app.services.errors import (
@@ -142,10 +143,12 @@ def _parse_idempotency_key(raw: str) -> str:
 def _client_ip_hmac(settings: Settings, request: Request) -> str:
     """HMAC-SHA-256 of the canonical client IP under the abuse key (§40).
 
-    Raw IP is **not** stored anywhere. Only the fingerprint is passed into rate
-    limiting and the booking-core create path.
+    Raw IP is **not** stored anywhere. ``request.client`` is the address the ASGI
+    server resolved after the trusted-proxy policy, so a direct client cannot
+    spoof it via ``X-Forwarded-For``; it is canonicalised so equivalent IPv6
+    textual forms share one fingerprint.
     """
-    ip = request.client.host if request.client else "unknown"
+    ip = canonical_client_ip(request.client.host if request.client else None)
     return hmac_sha256_hex(settings.abuse_hmac_key, ip)
 
 

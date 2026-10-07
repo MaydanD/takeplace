@@ -196,6 +196,21 @@ class Settings(BaseSettings):
     # Worker heartbeat for ``/health/ops`` (§47, §49).
     vk_worker_heartbeat_seconds: Annotated[int, Field(ge=5, le=600)] = 20
 
+    # --- privacy / retention / maintenance (PROJECT-SPEC §40, §42, §60) ------
+    # Terminal (CLOSED/CANCELED) booking PII is anonymized after this many days.
+    # The spec deliberately does not fix a legal number; this is operational
+    # config, resolved by the legal production gate §65.3.
+    booking_pii_retention_days: Annotated[int, Field(ge=1, le=3650)] = 90
+    # Terminal outbox rows (SENT/SKIPPED/acknowledged DEAD) are pruned after this
+    # many days; unacknowledged DEAD and non-terminal rows are never pruned (§6.11).
+    outbox_retention_days: Annotated[int, Field(ge=1, le=3650)] = 30
+    # Periodic maintenance cadence and bounded batch size (§60, §42.2).
+    maintenance_interval_seconds: Annotated[int, Field(ge=60, le=86_400)] = 3600
+    maintenance_batch_size: Annotated[int, Field(ge=1, le=10_000)] = 500
+    # A PROCESSING outbox lease older than this is reported by the invariant
+    # audit as stuck (§60). Must exceed the worker lease plus a safety margin.
+    maintenance_stuck_lease_seconds: Annotated[int, Field(ge=60, le=86_400)] = 3600
+
     # --- secrets ------------------------------------------------------------
     idempotency_hmac_key: str = "change-me-idempotency-hmac-key"
     abuse_hmac_key: str = "change-me-abuse-hmac-key"
@@ -266,6 +281,12 @@ class Settings(BaseSettings):
     def _validate_environment(self) -> Settings:
         if self.vk_worker_lease_seconds <= self.vk_http_timeout_seconds + 5:
             raise ValueError("VK lease must exceed HTTP timeout by more than 5 seconds")
+        if self.maintenance_stuck_lease_seconds < self.vk_worker_lease_seconds:
+            raise ValueError(
+                "maintenance_stuck_lease_seconds must not be shorter than the worker lease"
+            )
+        if self.app_database_url.split(":", 1)[0] != "postgresql+asyncpg":
+            raise ValueError("v1 requires PostgreSQL (postgresql+asyncpg); SQLite is not supported")
         if self.is_production:
             self._validate_production()
         return self
@@ -287,6 +308,11 @@ class Settings(BaseSettings):
             problems.append(
                 "TAKEPLACE_FORWARDED_ALLOW_IPS=* is not allowed in production; "
                 "list the reverse-proxy addresses only"
+            )
+        if not self.forwarded_allow_ips.strip():
+            problems.append(
+                "TAKEPLACE_FORWARDED_ALLOW_IPS must name the trusted reverse proxy "
+                "(Caddy) so forwarded client IPs are trustworthy"
             )
 
         if self.session_cookie_secure is False:

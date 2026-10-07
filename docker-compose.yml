@@ -65,6 +65,9 @@ services:
       dockerfile: Dockerfile
     image: takeplace-backend:dev
     restart: unless-stopped
+    # Drain in-flight requests (including SSE shutdown) before SIGKILL instead
+    # of the Docker default 10s.
+    stop_grace_period: 20s
     env_file:
       - .env
     environment:
@@ -110,6 +113,10 @@ services:
       dockerfile: Dockerfile
     image: takeplace-backend:dev
     restart: unless-stopped
+    # Finish the in-flight VK bookkeeping transaction after SIGTERM before the
+    # runtime SIGKILLs us. Bounded: the VK HTTP timeout is 10s and shutdown only
+    # waits for the current cycle's DB bookkeeping, so 30s is a safe margin.
+    stop_grace_period: 30s
     env_file:
       - .env
     environment:

@@ -160,3 +160,43 @@ def test_vk_settings_are_not_production_placeholders() -> None:
     # production validation unchanged.
     settings = Settings(**_production_kwargs())  # type: ignore[arg-type]
     assert settings.vk_worker_enabled is True
+
+
+# --- Stage 13: retention, proxy trust and PostgreSQL-only validation --------
+
+
+def test_production_rejects_empty_forwarded_allow_ips() -> None:
+    # An empty allow-list means the real client IP behind Caddy is never resolved.
+    with pytest.raises(ValidationError, match="FORWARDED_ALLOW_IPS"):
+        Settings(**_production_kwargs(forwarded_allow_ips=""))  # type: ignore[arg-type]
+
+
+def test_non_postgres_database_url_is_rejected() -> None:
+    # v1 requires PostgreSQL; SQLite must fail fast rather than silently degrade
+    # concurrency/exclusion guarantees (§46, §62).
+    with pytest.raises(ValidationError, match="PostgreSQL"):
+        Settings(env="development", database_url="sqlite+aiosqlite:///tmp/x.db")
+
+
+def test_retention_defaults_and_bounds() -> None:
+    settings = Settings(env="development")
+    assert settings.booking_pii_retention_days >= 1
+    assert settings.outbox_retention_days >= 1
+    assert settings.maintenance_interval_seconds >= 60
+    assert settings.maintenance_batch_size >= 1
+    with pytest.raises(ValidationError):
+        Settings(env="development", booking_pii_retention_days=0)
+
+
+def test_retention_settings_survive_production_validation() -> None:
+    settings = Settings(**_production_kwargs())  # type: ignore[arg-type]
+    assert settings.booking_pii_retention_days >= 1
+
+
+def test_maintenance_stuck_lease_must_not_be_shorter_than_worker_lease() -> None:
+    with pytest.raises(ValidationError, match="maintenance_stuck_lease_seconds"):
+        Settings(
+            env="development",
+            maintenance_stuck_lease_seconds=60,
+            vk_worker_lease_seconds=120,
+        )

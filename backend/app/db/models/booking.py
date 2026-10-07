@@ -179,6 +179,18 @@ class Booking(Base):
             unique=True,
             postgresql_where=text("admin_idempotency_key IS NOT NULL"),
         ),
+        # Retention scans (Stage 13, §40/§42.2): short-lived abuse fingerprint
+        # cleanup and terminal-booking anonymization.
+        Index(
+            "ix_bookings_request_ip_hmac_expires_at",
+            "request_ip_hmac_expires_at",
+            postgresql_where=text("request_ip_hmac IS NOT NULL"),
+        ),
+        Index(
+            "ix_bookings_venue_id_anonymization_due",
+            "venue_id",
+            postgresql_where=text("anonymized_at IS NULL AND status IN ('CLOSED', 'CANCELED')"),
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)

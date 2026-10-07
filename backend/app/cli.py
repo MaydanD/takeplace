@@ -12,6 +12,8 @@ Commands
 ``enable-venue``   re-enable a previously suspended venue.
 ``list-venues``    show venues and their status.
 ``import-layout``  upsert a hall/table layout from a validated JSON file.
+``audit-invariants`` run the read-only invariant audit (§60) and exit non-zero on corruption.
+``run-maintenance``  anonymize expired PII, clean up technical data and audit invariants.
 
 By default ``create-venue`` and ``reset-password`` generate a cryptographically
 random password and print it exactly once; ``--password`` is the explicit
@@ -30,9 +32,11 @@ import asyncio
 import json
 import sys
 from collections.abc import Sequence
+from datetime import timedelta
 from pathlib import Path
 
 from app.db.session import dispose_engine, init_engine, session_scope
+from app.db.time import operation_now
 from app.domain.layout import LayoutImport, LayoutValidationError, validate_layout_import
 from app.domain.timezone import (
     UnknownTimezoneError,
@@ -44,6 +48,8 @@ from app.security.passwords import get_password_hasher, init_password_hasher
 from app.security.tokens import generate_password
 from app.services.errors import ServiceError, VenueNotFoundError
 from app.services.halls import import_layout
+from app.services.invariants import InvariantReport, run_invariant_audit
+from app.services.maintenance import run_maintenance
 from app.services.venues import (
     create_venue,
     get_admin_for_venue,
@@ -114,6 +120,21 @@ def _build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help="validate the file without writing anything",
+    )
+
+    sub.add_parser(
+        "audit-invariants",
+        help="run the read-only invariant audit (PROJECT-SPEC §60)",
+    )
+
+    maintenance = sub.add_parser(
+        "run-maintenance",
+        help="anonymize expired PII, clean up technical data and audit invariants",
+    )
+    maintenance.add_argument(
+        "--venue",
+        default=None,
+        help="restrict anonymization to one venue id or slug (default: all venues)",
     )
 
     return parser
@@ -246,6 +267,47 @@ async def _cmd_list_venues(_args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _print_invariant_report(report: InvariantReport) -> None:
+    print(f"{'severity':<10}  {'check':<46}  count")
+    for check in report.checks:
+        print(f"{check.severity:<10}  {check.name:<46}  {check.count}")
+    if report.is_clean:
+        print("invariants: clean")
+    else:
+        print(f"invariants: {report.total_corruptions} corruption(s) detected")
+    if report.alerts:
+        print(f"alerts: {report.alerts}")
+
+
+async def _cmd_audit_invariants(_args: argparse.Namespace) -> int:
+    settings = get_settings()
+    async with session_scope() as session:
+        now = await operation_now(session)
+        stuck_before = now - timedelta(seconds=settings.maintenance_stuck_lease_seconds)
+        report = await run_invariant_audit(session, now=now, stuck_before=stuck_before)
+    _print_invariant_report(report)
+    return EXIT_OK if report.is_clean else EXIT_ERROR
+
+
+async def _cmd_run_maintenance(args: argparse.Namespace) -> int:
+    settings = get_settings()
+    async with session_scope() as session:
+        venue_id = None
+        if args.venue:
+            venue = await get_venue(session, args.venue)
+            venue_id = venue.id
+        now = await operation_now(session)
+        report = await run_maintenance(session, now=now, settings=settings, venue_id=venue_id)
+    retention = report.retention
+    print("maintenance pass complete")
+    print(f"  anonymized bookings: {retention.anonymized_bookings}")
+    print(f"  cleared ip hmacs:    {retention.cleared_ip_hmacs}")
+    print(f"  deleted sessions:    {retention.deleted_sessions}")
+    print(f"  deleted outbox rows: {retention.deleted_outbox_rows}")
+    _print_invariant_report(report.audit)
+    return EXIT_OK if report.audit.is_clean else EXIT_ERROR
+
+
 async def _dispatch(args: argparse.Namespace) -> int:
     settings = get_settings()
     init_engine(settings)
@@ -263,6 +325,10 @@ async def _dispatch(args: argparse.Namespace) -> int:
             return await _cmd_list_venues(args)
         if args.command == "import-layout":
             return await _cmd_import_layout(args)
+        if args.command == "audit-invariants":
+            return await _cmd_audit_invariants(args)
+        if args.command == "run-maintenance":
+            return await _cmd_run_maintenance(args)
         raise AssertionError(f"unhandled command: {args.command}")
     finally:
         await dispose_engine()

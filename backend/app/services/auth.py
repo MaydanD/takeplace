@@ -7,7 +7,7 @@ solely in the client cookie.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any, cast
 
 from sqlalchemy import CursorResult, delete, func, select
@@ -138,8 +138,13 @@ async def delete_session(session: AsyncSession, session_id: int) -> None:
     await session.execute(delete(AdminSession).where(AdminSession.id == session_id))
 
 
-async def purge_expired_sessions(session: AsyncSession) -> int:
-    """Delete expired sessions. Returns the number removed."""
-    now = await operation_now(session)
-    result = await session.execute(delete(AdminSession).where(AdminSession.expires_at <= now))
+async def purge_expired_sessions(session: AsyncSession, *, now: datetime | None = None) -> int:
+    """Delete expired sessions. Returns the number removed.
+
+    ``now`` is optional so the periodic maintenance pass (PROJECT-SPEC §6.3) can
+    reuse one deterministic clock across all of its cleanup steps; callers that
+    do not care fall back to the operation clock.
+    """
+    moment = now if now is not None else await operation_now(session)
+    result = await session.execute(delete(AdminSession).where(AdminSession.expires_at <= moment))
     return int(cast(CursorResult[Any], result).rowcount or 0)

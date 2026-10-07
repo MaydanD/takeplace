@@ -39,6 +39,7 @@ from app.integrations.vk import (
     format_booking_notification,
 )
 from app.integrations.vk.crypto import VKEncryptionError
+from app.services.maintenance import run_maintenance
 from app.services.outbox_worker import (
     ClaimedJob,
     booking_id_of,
@@ -97,6 +98,9 @@ class VKOutboxWorker:
         """Poll until stopped. Never raises out of the loop on a transient error."""
         logger.info("worker_startup", poll_interval=self._settings.vk_worker_poll_interval_seconds)
         heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+        # Retention/anonymization + invariant audit run in their own task with
+        # their own session, so a slow maintenance pass never delays delivery.
+        maintenance_task = asyncio.create_task(self._maintenance_loop())
         try:
             while not self._stop.is_set():
                 processed = await self._run_once()
@@ -108,9 +112,11 @@ class VKOutboxWorker:
                             timeout=self._settings.vk_worker_poll_interval_seconds,
                         )
         finally:
+            maintenance_task.cancel()
             heartbeat_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await heartbeat_task
+            for task in (maintenance_task, heartbeat_task):
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
             await self._engine.dispose()
             logger.info("worker_shutdown")
 
@@ -144,6 +150,35 @@ class VKOutboxWorker:
                 throttle_window_seconds=self._settings.vk_worker_throttle_window_seconds,
                 throttle_max_per_window=self._settings.vk_worker_throttle_max_per_window,
             )
+
+    async def _maintenance_loop(self) -> None:
+        """Periodic retention/anonymization + invariant audit (Stage 13)."""
+        while not self._stop.is_set():
+            await self._maintenance_once()
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(
+                    self._stop.wait(), timeout=self._settings.maintenance_interval_seconds
+                )
+
+    async def _maintenance_once(self) -> None:
+        try:
+            async with self._session_factory() as session, session.begin():
+                now = await operation_now(session)
+                report = await run_maintenance(session, now=now, settings=self._settings)
+            logger.info(
+                "maintenance_cycle",
+                anonymized=report.retention.anonymized_bookings,
+                cleared_ip_hmacs=report.retention.cleared_ip_hmacs,
+                deleted_sessions=report.retention.deleted_sessions,
+                deleted_outbox=report.retention.deleted_outbox_rows,
+                audit_corruptions=report.audit.total_corruptions,
+                audit_alerts=report.audit.alerts,
+            )
+            if report.audit.total_corruptions:
+                # Detect-and-alert only: production never auto-fixes invariants (§60).
+                logger.error("invariant_audit_corruption", counts=report.audit.corruptions)
+        except Exception as exc:  # noqa: BLE001 - maintenance must never stop delivery
+            logger.warning("maintenance_failed", error=type(exc).__name__)
 
     async def _beat(self) -> None:
         """Publish the durable worker heartbeat (best-effort, §47)."""
