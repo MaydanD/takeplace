@@ -1,3 +1,4 @@
+import { OutboxBanner } from "@/components/OutboxBanner";
 import type { ReactNode } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 
@@ -26,5 +27,10 @@ export function RequireAdmin({ children }: { children: ReactNode }) {
     return <Navigate to="/admin/login" state={{ from: location }} replace />;
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      <OutboxBanner venueId={me.data.venue.id} />
+      {children}
+    </>
+  );
 }

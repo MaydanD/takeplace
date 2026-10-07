@@ -14,6 +14,8 @@ dependencies = [
   "structlog>=24.4,<26.0",
   "httpx>=0.27,<1.0",
   "argon2-cffi>=23.1,<26.0",
+  # AES-256-GCM for VK access-token encryption at rest (§38.5).
+  "cryptography>=42.0,<47.0",
   # IANA timezone database for ``zoneinfo`` on platforms without a system tz
   # database (notably Windows). Venue timezone validation requires it (§53).
   "tzdata>=2024.1",

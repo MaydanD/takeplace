@@ -84,6 +84,7 @@ from app.services.errors import (
     TableNotFoundError,
 )
 from app.services.live_availability import live_busy_intervals
+from app.services.outbox import enqueue_online_booking_notification
 from app.services.schedule import load_schedule_table
 
 MAX_ATTEMPTS = 3  # 1 try + up to 2 retries (§32.5)
@@ -888,6 +889,8 @@ async def _create_public_once(
     request_hmac: str,
     request_ip_hmac: str,
     ip_hmac_ttl_days: int,
+    vk_late_grace_seconds: int,
+    vk_max_age_seconds: int,
 ) -> Booking:
     """Run the public ONLINE create flow inside the caller's transaction (§32.2).
 
@@ -1031,6 +1034,16 @@ async def _create_public_once(
         )
     )
     await session.flush()
+    # Only a newly created ONLINE booking creates a VK notification, in this same
+    # transaction as booking, occupancy and event. Replays and all admin mutation
+    # paths never call this enqueue function (§38.1-38.2).
+    await enqueue_online_booking_notification(
+        session,
+        booking=booking,
+        created_at=now,
+        late_grace_seconds=vk_late_grace_seconds,
+        max_age_seconds=vk_max_age_seconds,
+    )
     await publish(session, venue_id=venue_id, event_type=BOOKING_CREATED, ids=[booking.id])
     return booking
 
@@ -1051,6 +1064,8 @@ async def create_public_booking(
     hmac_key: str,
     request_ip_hmac: str,
     ip_hmac_ttl_days: int,
+    vk_late_grace_seconds: int = 1800,
+    vk_max_age_seconds: int = 21600,
 ) -> tuple[BookingView, bool]:
     """Create a public ONLINE booking idempotently (§18, §18.2, §32.2).
 
@@ -1078,6 +1093,8 @@ async def create_public_booking(
                     request_hmac=request_hmac,
                     request_ip_hmac=request_ip_hmac,
                     ip_hmac_ttl_days=ip_hmac_ttl_days,
+                    vk_late_grace_seconds=vk_late_grace_seconds,
+                    vk_max_age_seconds=vk_max_age_seconds,
                 )
             return await view_of(session, booking), True
         except IntegrityError as exc:

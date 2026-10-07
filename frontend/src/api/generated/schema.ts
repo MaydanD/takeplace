@@ -1381,6 +1381,18 @@ export interface components {
              */
             outbox_retry: number;
             /**
+             * Outbox Skipped By Reason
+             * @default {}
+             */
+            outbox_skipped_by_reason: {
+                [key: string]: number;
+            };
+            /**
+             * Outbox Total Dead
+             * @default 0
+             */
+            outbox_total_dead: number;
+            /**
              * Outbox Unacknowledged Dead
              * @default 0
              */
@@ -1401,7 +1413,7 @@ export interface components {
         };
         /**
          * OutboxDeadJob
-         * @description A DEAD outbox job for the operational banner/list (§6.11, §49).
+         * @description Secret-free outbox delivery failure summary.
          */
         OutboxDeadJob: {
             /** Acknowledged At */
@@ -1422,18 +1434,23 @@ export interface components {
             id: number;
             /** Last Error */
             last_error: string | null;
-            /** Status */
-            status: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "DEAD" | "RETRY";
             /** Type */
             type: string;
         };
         /**
          * OutboxDeadList
-         * @description The venue's DEAD jobs plus the unacknowledged count for the banner.
+         * @description Tenant-scoped DEAD jobs and unacknowledged count.
          */
         OutboxDeadList: {
             /** Jobs */
             jobs: components["schemas"]["OutboxDeadJob"][];
+            /** Next Cursor */
+            next_cursor?: number | null;
             /** Unacknowledged */
             unacknowledged: number;
         };
@@ -1747,6 +1764,11 @@ export interface components {
         SystemStatusResponse: {
             /** Online Abuse Alert */
             online_abuse_alert: boolean;
+            /**
+             * Outbox Unacknowledged Dead
+             * @default 0
+             */
+            outbox_unacknowledged_dead: number;
         };
         /**
          * TableSummary
@@ -1826,32 +1848,31 @@ export interface components {
         };
         /**
          * VKIntegrationSummary
-         * @description Secret-free VK integration view. Never exposes the access token (§38.5).
+         * @description Frontend-safe VK configuration state (secret-free summary).
          */
         VKIntegrationSummary: {
             /** Community Id */
-            community_id: number | null;
+            community_id?: number | null;
             /** Enabled */
             enabled: boolean;
             /** Has Token */
             has_token: boolean;
             /** Peer Id */
-            peer_id: number | null;
+            peer_id?: number | null;
         };
         /**
          * VKIntegrationUpdate
-         * @description Configure the venue's VK integration (§38.5).
-         *
-         *     ``access_token`` is optional on update: omitting it keeps the stored token, so
-         *     toggling ``enabled`` or changing the peer does not require re-entering the
-         *     secret. A supplied token is encrypted at rest and never read back.
+         * @description Admin update payload for venue VK configuration.
          */
         VKIntegrationUpdate: {
             /** Access Token */
             access_token?: string | null;
             /** Community Id */
             community_id?: number | null;
-            /** Enabled */
+            /**
+             * Enabled
+             * @default false
+             */
             enabled: boolean;
             /** Peer Id */
             peer_id?: number | null;
@@ -2832,7 +2853,10 @@ export interface operations {
     };
     list_dead_api_admin_v1_outbox_dead_get: {
         parameters: {
-            query?: never;
+            query?: {
+                before_id?: number | null;
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -2846,6 +2870,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OutboxDeadList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

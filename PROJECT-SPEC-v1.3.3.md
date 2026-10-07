@@ -814,7 +814,7 @@ DEAD
 SKIPPED
 ```
 
-`SKIPPED` означает, что уведомление сознательно не отправлялось, потому что к моменту обработки оно потеряло операционный смысл. Минимальный стабильный набор `skip_reason`: `EXPIRED | BOOKING_INACTIVE | BOOKING_ANONYMIZED`. Сам факт наступления `booking.starts_at` **не** является причиной skip: срочная бронь в статусе `NEW/WAITING` ещё может быть полезна сотрудникам в пределах позднего grace-window (§38.2–38.3). Для `SKIPPED` обязательны `skipped_at` и `skip_reason`; для остальных статусов они `NULL`. `SKIPPED` не является ошибкой и не поднимает operational alert.
+`SKIPPED` означает, что уведомление сознательно не отправлялось, потому что к моменту обработки оно потеряло операционный смысл. Минимальный стабильный набор `skip_reason`: `EXPIRED | BOOKING_INACTIVE | BOOKING_ANONYMIZED | INTEGRATION_DISABLED`. Сам факт наступления `booking.starts_at` **не** является причиной skip: срочная бронь в статусе `NEW/WAITING` ещё может быть полезна сотрудникам в пределах позднего grace-window (§38.2–38.3). Для `SKIPPED` обязательны `skipped_at` и `skip_reason`; для остальных статусов они `NULL`. `SKIPPED` не является ошибкой и не поднимает operational alert.
 
 `DEAD` означает, что автоматические retry исчерпаны. DEAD остаётся в истории до retention cleanup, но operational alert учитывает только неacknowledged DEAD. Admin может вручную отправить задачу на retry либо подтвердить (`acknowledge`) известную проблему; это не удаляет строку. `acknowledged_by_session_id` вместе с `venue_id` образует composite FK на `admin_sessions(id, venue_id)` и использует **`ON DELETE SET NULL (acknowledged_by_session_id)`**. Нельзя применять обычный `ON DELETE SET NULL` без списка колонок: тогда PostgreSQL попытался бы занулить и `venue_id NOT NULL`.
 
@@ -2125,6 +2125,8 @@ notification_outbox
 
 Ошибка VK не откатывает бронь.
 
+Stage 12 implementation erratum (2026-10-07): ONLINE-create всегда создаёт outbox, включая выключенную/ещё не настроенную интеграцию. Прежний закрытый список skip reasons не описывал этот случай. При отсутствии integration row либо `enabled=false` worker фиксирует `SKIPPED/INTEGRATION_DISABLED` без HTTP. Проверки EXPIRED/BOOKING_ANONYMIZED/BOOKING_INACTIVE имеют приоритет. Включённая, но повреждённая конфигурация — `DEAD`, а не успешная доставка. Это уточнение проверяется PostgreSQL acceptance suite.
+
 Outbox `payload` для booking notification хранит только минимальные неперсональные ссылки/тип (`booking_id`, notification kind и техническую версию formatter), а не снимок имени/телефона/comment. Перед фактической отправкой worker загружает актуальную booking и форматирует сообщение. Это уменьшает количество копий ПД внутри системы и позволяет не отправлять уже отменённую бронь.
 
 При создании задачи задаётся `expires_at`:
@@ -2561,7 +2563,7 @@ CHECK (
 CHECK ((status = 'SKIPPED') = (skipped_at IS NOT NULL)) -- notification_outbox
 CHECK (status = 'SKIPPED' OR skip_reason IS NULL)       -- notification_outbox
 CHECK (status <> 'SKIPPED' OR skip_reason IS NOT NULL) -- notification_outbox
-CHECK (skip_reason IS NULL OR skip_reason IN ('EXPIRED','BOOKING_INACTIVE','BOOKING_ANONYMIZED'))
+CHECK (skip_reason IS NULL OR skip_reason IN ('EXPIRED','BOOKING_INACTIVE','BOOKING_ANONYMIZED','INTEGRATION_DISABLED'))
 CHECK (venue_vk_integrations: NOT enabled OR (community_id IS NOT NULL AND peer_id IS NOT NULL AND encrypted_access_token IS NOT NULL AND encryption_key_version IS NOT NULL))
 ```
 

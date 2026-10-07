@@ -125,3 +125,38 @@ def test_vk_key_ring_parses_versions() -> None:
         env="development", vk_encryption_keys=f"1:{_GOOD_VK_KEY[2:]},2:{_GOOD_VK_KEY[2:]}"
     )
     assert set(settings.vk_key_ring) == {1, 2}
+
+
+# --- VK worker configuration (PROJECT-SPEC §38) -----------------------------
+
+
+def test_vk_worker_defaults_are_sane() -> None:
+    settings = Settings(env="development")
+    assert settings.vk_worker_enabled is True
+    assert settings.vk_notification_max_age_seconds == 6 * 3600
+    assert settings.vk_notification_late_grace_seconds == 30 * 60
+    assert settings.vk_worker_max_attempts >= 1
+    assert settings.vk_worker_retry_base_seconds <= settings.vk_worker_retry_max_seconds
+    assert settings.vk_api_version
+
+
+def test_vk_late_grace_default_is_thirty_minutes() -> None:
+    # The spec fixes the deploy default of the late-grace window (§38.2).
+    assert Settings(env="development").vk_notification_late_grace_seconds == 1800
+
+
+def test_vk_late_grace_cannot_be_negative() -> None:
+    with pytest.raises(ValidationError):
+        Settings(env="development", vk_notification_late_grace_seconds=-1)
+
+
+def test_vk_worker_lease_must_be_positive() -> None:
+    with pytest.raises(ValidationError):
+        Settings(env="development", vk_worker_lease_seconds=0)
+
+
+def test_vk_settings_are_not_production_placeholders() -> None:
+    # VK worker settings are operational config, not secrets, and must survive
+    # production validation unchanged.
+    settings = Settings(**_production_kwargs())  # type: ignore[arg-type]
+    assert settings.vk_worker_enabled is True

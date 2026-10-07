@@ -1313,6 +1313,19 @@
             "title": "Outbox Retry",
             "type": "integer"
           },
+          "outbox_skipped_by_reason": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "default": {},
+            "title": "Outbox Skipped By Reason",
+            "type": "object"
+          },
+          "outbox_total_dead": {
+            "default": 0,
+            "title": "Outbox Total Dead",
+            "type": "integer"
+          },
           "outbox_unacknowledged_dead": {
             "default": 0,
             "title": "Outbox Unacknowledged Dead",
@@ -1356,7 +1369,7 @@
         "type": "object"
       },
       "OutboxDeadJob": {
-        "description": "A DEAD outbox job for the operational banner/list (§6.11, §49).",
+        "description": "Secret-free outbox delivery failure summary.",
         "properties": {
           "acknowledged_at": {
             "anyOf": [
@@ -1400,6 +1413,10 @@
             "title": "Last Error"
           },
           "status": {
+            "enum": [
+              "DEAD",
+              "RETRY"
+            ],
             "title": "Status",
             "type": "string"
           },
@@ -1422,7 +1439,7 @@
         "type": "object"
       },
       "OutboxDeadList": {
-        "description": "The venue's DEAD jobs plus the unacknowledged count for the banner.",
+        "description": "Tenant-scoped DEAD jobs and unacknowledged count.",
         "properties": {
           "jobs": {
             "items": {
@@ -1430,6 +1447,17 @@
             },
             "title": "Jobs",
             "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
           },
           "unacknowledged": {
             "title": "Unacknowledged",
@@ -2223,6 +2251,11 @@
           "online_abuse_alert": {
             "title": "Online Abuse Alert",
             "type": "boolean"
+          },
+          "outbox_unacknowledged_dead": {
+            "default": 0,
+            "title": "Outbox Unacknowledged Dead",
+            "type": "integer"
           }
         },
         "required": [
@@ -2408,11 +2441,12 @@
         "type": "object"
       },
       "VKIntegrationSummary": {
-        "description": "Secret-free VK integration view. Never exposes the access token (§38.5).",
+        "description": "Frontend-safe VK configuration state (secret-free summary).",
         "properties": {
           "community_id": {
             "anyOf": [
               {
+                "exclusiveMinimum": 0.0,
                 "type": "integer"
               },
               {
@@ -2432,6 +2466,7 @@
           "peer_id": {
             "anyOf": [
               {
+                "exclusiveMinimum": 0.0,
                 "type": "integer"
               },
               {
@@ -2443,22 +2478,23 @@
         },
         "required": [
           "enabled",
-          "community_id",
-          "peer_id",
           "has_token"
         ],
         "title": "VKIntegrationSummary",
         "type": "object"
       },
       "VKIntegrationUpdate": {
-        "description": "Configure the venue's VK integration (§38.5).\n\n``access_token`` is optional on update: omitting it keeps the stored token, so\ntoggling ``enabled`` or changing the peer does not require re-entering the\nsecret. A supplied token is encrypted at rest and never read back.",
+        "additionalProperties": false,
+        "description": "Admin update payload for venue VK configuration.",
         "properties": {
           "access_token": {
             "anyOf": [
               {
-                "maxLength": 1000,
+                "format": "password",
+                "maxLength": 8192,
                 "minLength": 1,
-                "type": "string"
+                "type": "string",
+                "writeOnly": true
               },
               {
                 "type": "null"
@@ -2469,7 +2505,7 @@
           "community_id": {
             "anyOf": [
               {
-                "minimum": 0.0,
+                "exclusiveMinimum": 0.0,
                 "type": "integer"
               },
               {
@@ -2479,12 +2515,14 @@
             "title": "Community Id"
           },
           "enabled": {
+            "default": false,
             "title": "Enabled",
             "type": "boolean"
           },
           "peer_id": {
             "anyOf": [
               {
+                "exclusiveMinimum": 0.0,
                 "type": "integer"
               },
               {
@@ -2494,9 +2532,6 @@
             "title": "Peer Id"
           }
         },
-        "required": [
-          "enabled"
-        ],
         "title": "VKIntegrationUpdate",
         "type": "object"
       },
@@ -4149,6 +4184,37 @@
       "get": {
         "description": "List this venue's DEAD outbox jobs plus the unacknowledged count.",
         "operationId": "list_dead_api_admin_v1_outbox_dead_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "before_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "exclusiveMinimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -4159,6 +4225,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "List Dead",

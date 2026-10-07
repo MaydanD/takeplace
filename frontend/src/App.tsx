@@ -1,3 +1,4 @@
+import { VKIntegrationPage } from "@/pages/VKIntegrationPage";
 import { PublicBookingPage } from "@/pages/PublicBookingPage";
 import { lazy, Suspense } from "react";
 import { Route, Routes, useLocation } from "react-router-dom";
@@ -37,6 +38,14 @@ export function App() {
     <>
       <AdminRealtime />
       <Routes>
+        <Route
+          path="/admin/vk"
+          element={
+            <RequireAdmin>
+              <VKIntegrationPage />
+            </RequireAdmin>
+          }
+        />
         <Route path="/b/:slug" element={<PublicBookingPage />} />
         <Route path="/" element={<SystemStatusPage />} />
         <Route path="/admin/login" element={<AdminLoginPage />} />

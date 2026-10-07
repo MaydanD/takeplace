@@ -104,6 +104,25 @@ services:
       retries: 20
       start_period: 15s
 
+  vk-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: takeplace-backend:dev
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      TAKEPLACE_DB_HOST: postgres
+      TAKEPLACE_DB_PORT: "5432"
+      TAKEPLACE_DB_NAME: ${TAKEPLACE_POSTGRES_DB}
+    command: ["python", "-m", "app.worker"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
   frontend:
     build:
       context: ./frontend

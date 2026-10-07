@@ -472,9 +472,11 @@ def test_abuse_status_is_tenant_scoped(api_client: TestClient, tmp_path: Path) -
         get_public_rate_limiters().record_create(venue.venue_id)
     assert api_client.get("/health/ops").json()["online_abuse_alerts"] == 1
     assert api_client.get("/api/admin/v1/system/status", headers=venue.headers()).json() == {
-        "online_abuse_alert": True
+        "online_abuse_alert": True,
+        "outbox_unacknowledged_dead": 0,
     }
     assert api_client.get("/api/admin/v1/system/status", headers=other.headers()).json() == {
-        "online_abuse_alert": False
+        "online_abuse_alert": False,
+        "outbox_unacknowledged_dead": 0,
     }
     assert api_client.get("/api/admin/v1/system/status").status_code == 401

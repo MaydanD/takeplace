@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import cast
 
 from fastapi import Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 
@@ -185,3 +186,17 @@ def captcha_required() -> ApiError:
 def honeypot_filled() -> ApiError:
     """The hidden honeypot field was filled (§40, §50)."""
     return ApiError(400, "HONEYPOT_FILLED", "invalid submission")
+
+
+async def safe_validation_error_handler(_request: Request, exc: Exception) -> JSONResponse:
+    """Never echo submitted secrets/PII in request-validation responses."""
+    error = cast(RequestValidationError, exc)
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": [
+                {"type": item["type"], "loc": item["loc"], "msg": item["msg"]}
+                for item in error.errors()
+            ]
+        },
+    )

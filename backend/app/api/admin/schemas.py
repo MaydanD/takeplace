@@ -8,11 +8,12 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, SecretStr
 
 from app.db.models import AdminAccount, BookingEvent, Hall, Table, Venue
 from app.domain.layout import StaticElement
 from app.services.bookings import BookingView
+from app.services.outbox_worker import DeadJobSummary
 from app.services.vk_integration import VKIntegrationSummary as VKIntegrationSummaryData
 
 
@@ -42,7 +43,32 @@ class VKIntegrationUpdate(BaseModel):
     enabled: bool = False
     community_id: int | None = Field(default=None, gt=0)
     peer_id: int | None = Field(default=None, gt=0)
-    access_token: str | None = Field(default=None, min_length=1, max_length=8192)
+    access_token: SecretStr | None = Field(default=None, min_length=1, max_length=8192)
+
+
+class OutboxDeadJob(BaseModel):
+    """Secret-free outbox delivery failure summary."""
+
+    id: int
+    type: str
+    status: Literal["DEAD", "RETRY"]
+    attempts: int
+    created_at: AwareDatetime
+    expires_at: AwareDatetime
+    last_error: str | None
+    acknowledged_at: AwareDatetime | None
+
+    @classmethod
+    def from_summary(cls, summary: DeadJobSummary) -> OutboxDeadJob:
+        return cls.model_validate(summary, from_attributes=True)
+
+
+class OutboxDeadList(BaseModel):
+    """Tenant-scoped DEAD jobs and unacknowledged count."""
+
+    jobs: list[OutboxDeadJob]
+    unacknowledged: int
+    next_cursor: int | None = None
 
 
 # Local schedule times are wall-clock ``HH:MM`` values in the venue timezone, on

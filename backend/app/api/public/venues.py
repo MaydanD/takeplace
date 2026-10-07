@@ -361,6 +361,8 @@ async def post_public_booking(
                 f"{venue.id}:{request.client.host if request.client else 'unknown'}",
             ),
             ip_hmac_ttl_days=settings.request_ip_hmac_ttl_days,
+            vk_late_grace_seconds=settings.vk_notification_late_grace_seconds,
+            vk_max_age_seconds=settings.vk_notification_max_age_seconds,
         )
     response.status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
     if created:

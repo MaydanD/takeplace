@@ -167,6 +167,35 @@ class Settings(BaseSettings):
     # a lightweight, read-only check that never refreshes ``last_seen_at``.
     realtime_session_check_seconds: Annotated[float, Field(gt=0, le=600)] = 30.0
 
+    # --- VK outbox worker (PROJECT-SPEC §38) --------------------------------
+    # The VK worker is a separate process (``python -m app.worker``); these
+    # settings are read by both the API process (only the TTL/late-grace values
+    # that shape ``expires_at`` on insert) and the worker process.
+    vk_worker_enabled: bool = True
+    vk_api_version: str = "5.199"
+    # Explicit client timeout for the VK HTTP call (§38.3).
+    vk_http_timeout_seconds: Annotated[float, Field(gt=0, le=120)] = 10.0
+    # ``expires_at = min(booking.ends_at, starts_at + LATE_GRACE, created_at + MAX_AGE)``
+    # (§38.2). Operational config, not a product constant.
+    vk_notification_max_age_seconds: Annotated[int, Field(ge=60, le=86_400)] = 6 * 3600
+    vk_notification_late_grace_seconds: Annotated[int, Field(ge=0, le=86_400)] = 30 * 60
+    # Worker lease/polling (§38.3). The lease bounds how long a claimed job may be
+    # held before an expired ``locked_until`` makes it reclaimable after a crash.
+    vk_worker_poll_interval_seconds: Annotated[float, Field(gt=0, le=600)] = 2.0
+    vk_worker_lease_seconds: Annotated[int, Field(ge=5, le=3600)] = 120
+    vk_worker_batch_size: Annotated[int, Field(ge=1, le=100)] = 10
+    # Retry/backoff for retryable failures (§38.3). ``base * 2**(attempts-1)``
+    # capped at ``max``; after ``max_attempts`` the job becomes DEAD.
+    vk_worker_max_attempts: Annotated[int, Field(ge=1, le=50)] = 8
+    vk_worker_retry_base_seconds: Annotated[int, Field(ge=1, le=3600)] = 30
+    vk_worker_retry_max_seconds: Annotated[int, Field(ge=1, le=86_400)] = 3600
+    # Per-venue send throttle: at most this many notifications per window, so a
+    # burst of ONLINE bookings does not flood the staff conversation (§38.3).
+    vk_worker_throttle_window_seconds: Annotated[int, Field(ge=1, le=3600)] = 60
+    vk_worker_throttle_max_per_window: Annotated[int, Field(ge=1, le=1000)] = 10
+    # Worker heartbeat for ``/health/ops`` (§47, §49).
+    vk_worker_heartbeat_seconds: Annotated[int, Field(ge=5, le=600)] = 20
+
     # --- secrets ------------------------------------------------------------
     idempotency_hmac_key: str = "change-me-idempotency-hmac-key"
     abuse_hmac_key: str = "change-me-abuse-hmac-key"
@@ -235,6 +264,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_environment(self) -> Settings:
+        if self.vk_worker_lease_seconds <= self.vk_http_timeout_seconds + 5:
+            raise ValueError("VK lease must exceed HTTP timeout by more than 5 seconds")
         if self.is_production:
             self._validate_production()
         return self

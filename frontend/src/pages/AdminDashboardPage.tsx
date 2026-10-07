@@ -78,6 +78,9 @@ export function AdminDashboardPage() {
       <header className="page-header">
         <h1>Админка</h1>
         <div className="page-header__actions">
+          <Link to="/admin/vk" className="button-link">
+            Уведомления VK
+          </Link>
           <Link to="/admin/bookings" className="button-link">
             Книга броней
           </Link>

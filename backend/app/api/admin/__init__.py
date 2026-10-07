@@ -14,6 +14,7 @@ from app.api.admin import (
     bookings,
     halls,
     integrations,
+    outbox,
     schedule,
     settings,
     stream,
@@ -27,4 +28,5 @@ router.include_router(schedule.router)
 router.include_router(halls.router)
 router.include_router(bookings.router)
 router.include_router(integrations.router)
+router.include_router(outbox.router)
 router.include_router(stream.router)

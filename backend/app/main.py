@@ -8,10 +8,11 @@ from contextlib import asynccontextmanager, suppress
 
 import structlog
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import admin, health, public
-from app.api.errors import ApiError, api_error_handler
+from app.api.errors import ApiError, api_error_handler, safe_validation_error_handler
 from app.db.session import dispose_engine, get_session_factory, init_engine
 from app.logging_config import configure_logging, get_logger
 from app.middleware import RequestContextMiddleware, SecurityHeadersMiddleware
@@ -122,6 +123,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Expected, user-actionable failures map to stable machine-readable codes
     # (PROJECT-SPEC §36) instead of generic 500 responses.
     app.add_exception_handler(ApiError, api_error_handler)
+    app.add_exception_handler(RequestValidationError, safe_validation_error_handler)
     return app
 
 
