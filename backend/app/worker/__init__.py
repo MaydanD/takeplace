@@ -1,21 +1,35 @@
-"""VK outbox worker process (PROJECT-SPEC §3.5, §38.3).
+"""Background worker process (PROJECT-SPEC §3.5, §38.3, §42.2).
 
 A **separate process** (``python -m app.worker``), not a background task inside
 the FastAPI app: the API must never depend on VK availability, and the worker must
 be restartable independently (§3.5, §38.3).
 
+The process runs two independent loops, neither of which can stop the other:
+
+* **retention/anonymization maintenance** (``_maintenance_loop``) — always on,
+  regardless of ``TAKEPLACE_VK_WORKER_ENABLED``. Retention is a legal obligation
+  (§42.2) and must not be coupled to VK delivery (audit FIX-02). It records each
+  pass in ``maintenance_heartbeat`` so ``/health/ops`` can flag a stopped job;
+* **VK delivery** (``_delivery_loop``) — only when VK notifications are enabled.
+  It claims jobs with ``FOR UPDATE SKIP LOCKED`` and never holds a transaction
+  across the VK HTTP call (§38.3).
+
 Design points:
 
 * it owns its own engine/session factory, exactly like the API but with its own
   lifecycle;
-* it claims jobs with ``FOR UPDATE SKIP LOCKED`` and never holds a transaction
-  across the VK HTTP call (§38.3);
 * it survives PostgreSQL outages (reconnect via the pool + retry loop), VK outages
   (RETRY with backoff), rate limits (retryable), timeouts (retryable), terminal VK
   errors (DEAD) and its own crash mid-delivery (expired lease -> reclaim);
+* a failure in one loop is logged and retried on its own cadence, never killing
+  the process or the sibling loop;
 * it terminates cleanly on SIGTERM/SIGINT, finishing the in-flight job's
   bookkeeping transaction before exiting;
-* it publishes a heartbeat so ``/health/ops`` can flag a dead worker (§47).
+* it publishes a worker heartbeat so ``/health/ops`` can flag a dead worker (§47).
+
+Stage 14 handoff: keep exactly one worker replica (or elect a single maintenance
+leader) so the periodic loop runs once per fleet; the CLI ``run-maintenance``
+command remains the manual, on-demand path.
 """
 
 from __future__ import annotations
@@ -40,6 +54,10 @@ from app.integrations.vk import (
 )
 from app.integrations.vk.crypto import VKEncryptionError
 from app.services.maintenance import run_maintenance
+from app.services.maintenance_heartbeat import (
+    mark_maintenance_failure,
+    mark_maintenance_success,
+)
 from app.services.outbox_worker import (
     ClaimedJob,
     booking_id_of,
@@ -95,30 +113,51 @@ class VKOutboxWorker:
         self._stop.set()
 
     async def run(self) -> None:
-        """Poll until stopped. Never raises out of the loop on a transient error."""
-        logger.info("worker_startup", poll_interval=self._settings.vk_worker_poll_interval_seconds)
+        """Poll until stopped. Never raises out of a loop on a transient error."""
+        logger.info(
+            "worker_startup",
+            vk_enabled=self._settings.vk_worker_enabled,
+            poll_interval=self._settings.vk_worker_poll_interval_seconds,
+        )
         heartbeat_task = asyncio.create_task(self._heartbeat_loop())
         # Retention/anonymization + invariant audit run in their own task with
-        # their own session, so a slow maintenance pass never delays delivery.
+        # their own session, so a slow maintenance pass never delays delivery and
+        # disabling VK delivery never disables retention (audit FIX-02).
         maintenance_task = asyncio.create_task(self._maintenance_loop())
         try:
-            while not self._stop.is_set():
-                processed = await self._run_once()
-                if processed == 0:
-                    # Idle: wait for the poll interval, but wake immediately on stop.
-                    with contextlib.suppress(asyncio.TimeoutError):
-                        await asyncio.wait_for(
-                            self._stop.wait(),
-                            timeout=self._settings.vk_worker_poll_interval_seconds,
-                        )
+            if self._settings.vk_worker_enabled:
+                await self._delivery_loop()
+            else:
+                # Maintenance-only mode: no VK credentials or delivery are needed.
+                await self._stop.wait()
         finally:
-            maintenance_task.cancel()
-            heartbeat_task.cancel()
             for task in (maintenance_task, heartbeat_task):
-                with contextlib.suppress(asyncio.CancelledError):
+                task.cancel()
+            for task in (maintenance_task, heartbeat_task):
+                try:
                     await task
+                except asyncio.CancelledError:
+                    pass
+                except Exception as exc:  # noqa: BLE001 - a crashed side task must not block shutdown
+                    logger.warning("worker_task_failed", error=type(exc).__name__)
             await self._engine.dispose()
             logger.info("worker_shutdown")
+
+    async def _delivery_loop(self) -> None:
+        """Claim/deliver until stopped. A cycle error never escapes the loop."""
+        while not self._stop.is_set():
+            try:
+                processed = await self._run_once()
+            except Exception as exc:  # noqa: BLE001 - a bad cycle must not stop the loop
+                logger.warning("worker_cycle_failed", error=type(exc).__name__)
+                processed = 0
+            if processed == 0:
+                # Idle: wait for the poll interval, but wake immediately on stop.
+                with contextlib.suppress(asyncio.TimeoutError):
+                    await asyncio.wait_for(
+                        self._stop.wait(),
+                        timeout=self._settings.vk_worker_poll_interval_seconds,
+                    )
 
     async def _run_once(self) -> int:
         """Claim and deliver one batch; return how many jobs were handled."""
@@ -165,6 +204,9 @@ class VKOutboxWorker:
             async with self._session_factory() as session, session.begin():
                 now = await operation_now(session)
                 report = await run_maintenance(session, now=now, settings=self._settings)
+                # Recorded in the same transaction as the pass, so the heartbeat
+                # only advances when the cleanup actually committed (§47).
+                await mark_maintenance_success(session, now=now)
             logger.info(
                 "maintenance_cycle",
                 anonymized=report.retention.anonymized_bookings,
@@ -179,6 +221,17 @@ class VKOutboxWorker:
                 logger.error("invariant_audit_corruption", counts=report.audit.corruptions)
         except Exception as exc:  # noqa: BLE001 - maintenance must never stop delivery
             logger.warning("maintenance_failed", error=type(exc).__name__)
+            await self._record_maintenance_failure(type(exc).__name__)
+
+    async def _record_maintenance_failure(self, error: str) -> None:
+        """Best-effort separate transaction: the failed pass rolled back (§47)."""
+        try:
+            async with self._session_factory() as session, session.begin():
+                await mark_maintenance_failure(
+                    session, now=await operation_now(session), error=error
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("maintenance_heartbeat_failed", error=type(exc).__name__)
 
     async def _beat(self) -> None:
         """Publish the durable worker heartbeat (best-effort, §47)."""
@@ -397,9 +450,8 @@ def main() -> None:
 
     settings = get_settings()
     configure_logging(settings.log_level, json_output=settings.is_production)
-    if not settings.vk_worker_enabled:
-        logger.info("worker_disabled")
-        return
+    # Never exit early when VK is disabled: the periodic retention/anonymization
+    # maintenance loop still has to run (audit FIX-02).
     with contextlib.suppress(KeyboardInterrupt):  # operator interrupt
         asyncio.run(run_worker(settings))
 

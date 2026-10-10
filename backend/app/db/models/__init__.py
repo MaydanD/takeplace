@@ -18,7 +18,12 @@ from app.db.models.booking import (
     VenueBookingCounter,
 )
 from app.db.models.hall import Hall, Table
-from app.db.models.outbox import NotificationOutbox, VenueVKIntegration, WorkerHeartbeatRow
+from app.db.models.outbox import (
+    MaintenanceHeartbeatRow,
+    NotificationOutbox,
+    VenueVKIntegration,
+    WorkerHeartbeatRow,
+)
 from app.db.models.schedule import ScheduleException, WeeklySchedule
 from app.db.models.venue import Venue
 
@@ -29,6 +34,7 @@ __all__ = [
     "BookingEvent",
     "BookingLiveTable",
     "Hall",
+    "MaintenanceHeartbeatRow",
     "NotificationOutbox",
     "ScheduleException",
     "Table",

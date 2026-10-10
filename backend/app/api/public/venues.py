@@ -140,16 +140,36 @@ def _parse_idempotency_key(raw: str) -> str:
     return raw
 
 
+def _canonical_request_ip(request: Request) -> str:
+    """The canonical client IP after the trusted-proxy policy (§39.5, §40).
+
+    ``request.client`` is the address the ASGI server resolved after the
+    ``FORWARDED_ALLOW_IPS`` policy, so a direct client cannot spoof it via
+    ``X-Forwarded-For``. :func:`canonical_client_ip` collapses equivalent IPv6
+    textual forms onto one identity and maps a missing/invalid address to the
+    shared :data:`UNKNOWN_CLIENT_IP`, so every fingerprint below is derived from
+    the exact same value.
+    """
+    return canonical_client_ip(request.client.host if request.client else None)
+
+
 def _client_ip_hmac(settings: Settings, request: Request) -> str:
     """HMAC-SHA-256 of the canonical client IP under the abuse key (§40).
 
-    Raw IP is **not** stored anywhere. ``request.client`` is the address the ASGI
-    server resolved after the trusted-proxy policy, so a direct client cannot
-    spoof it via ``X-Forwarded-For``; it is canonicalised so equivalent IPv6
-    textual forms share one fingerprint.
+    Raw IP is **not** stored anywhere; this fingerprint is only ever used as a
+    rate-limit key.
     """
-    ip = canonical_client_ip(request.client.host if request.client else None)
-    return hmac_sha256_hex(settings.abuse_hmac_key, ip)
+    return hmac_sha256_hex(settings.abuse_hmac_key, _canonical_request_ip(request))
+
+
+def _venue_ip_hmac(settings: Settings, *, venue_id: int, client_ip: str) -> str:
+    """Tenant-scoped IP fingerprint persisted on a booking (§40).
+
+    ``client_ip`` must already be canonical (:func:`_canonical_request_ip`); the
+    ``venue_id`` prefix keeps the stored fingerprint scoped to one tenant so the
+    ``same_network_as`` comparison can never span venues.
+    """
+    return hmac_sha256_hex(settings.abuse_hmac_key, f"{venue_id}:{client_ip}")
 
 
 # ---------------------------------------------------------------------------
@@ -330,7 +350,10 @@ async def post_public_booking(
     except CaptchaVerificationError as exc:
         raise captcha_required() from exc
 
-    # 4. Soft create rate limit (§40 transport guard, before DB work).
+    # 4. Soft create rate limit (§40 transport guard, before DB work). The stored
+    #    fingerprint and the rate-limit key share one canonicalisation of the
+    #    client IP, so both agree on the identity of the caller.
+    client_ip = _canonical_request_ip(request)
     client_ip_hmac = _client_ip_hmac(settings, request)
     limiters = get_public_rate_limiters()
     rate_key = public_create_fingerprint(venue.id, client_ip_hmac)
@@ -359,10 +382,7 @@ async def post_public_booking(
             data=booking_input,
             idempotency_key=idempotency_key,
             hmac_key=settings.idempotency_hmac_key,
-            request_ip_hmac=hmac_sha256_hex(
-                settings.abuse_hmac_key,
-                f"{venue.id}:{request.client.host if request.client else 'unknown'}",
-            ),
+            request_ip_hmac=_venue_ip_hmac(settings, venue_id=venue.id, client_ip=client_ip),
             ip_hmac_ttl_days=settings.request_ip_hmac_ttl_days,
             vk_late_grace_seconds=settings.vk_notification_late_grace_seconds,
             vk_max_age_seconds=settings.vk_notification_max_age_seconds,

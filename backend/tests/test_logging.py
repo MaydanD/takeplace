@@ -71,6 +71,50 @@ def test_sensitive_key_with_a_string_value_still_redacts() -> None:
     assert result == {"request_ip_hmac": REDACTED, "session_token": REDACTED}
 
 
+# --- audit FIX-06: guest_name and the phone/date boundary -------------------
+
+
+def test_guest_name_is_redacted() -> None:
+    assert _redact({"guest_name": "Иван Иванов"})["guest_name"] == REDACTED
+
+
+def test_technical_name_fields_are_not_redacted() -> None:
+    # A generic ``name`` marker would hide useful fields; only the exact
+    # personal-data key is protected.
+    result = _redact(
+        {"venue_name": "Пивная №1", "hall_name": "Зал", "event_type": "BOOKING_CREATED"}
+    )
+    assert result == {
+        "venue_name": "Пивная №1",
+        "hall_name": "Зал",
+        "event_type": "BOOKING_CREATED",
+    }
+
+
+def test_ordinary_dates_are_not_redacted_by_the_phone_rule() -> None:
+    result = _redact(
+        {
+            "business_date": "2026-10-05",
+            "message": "shift 2026-10-05 closed",
+            "created_at": "05.10.2026",
+        }
+    )
+    assert result["business_date"] == "2026-10-05"
+    assert result["message"] == "shift 2026-10-05 closed"
+    assert result["created_at"] == "05.10.2026"
+
+
+def test_short_numeric_identifiers_are_preserved() -> None:
+    assert _redact({"message": "booking 20261005 ok"})["message"] == "booking 20261005 ok"
+
+
+def test_real_phone_numbers_are_still_redacted_under_neutral_keys() -> None:
+    for value in ("+7 999 123-45-67", "8 (999) 123-45-67", "+1 555 123 4567"):
+        redacted = _redact({"message": f"call {value} now"})["message"]
+        assert REDACTED in redacted, value
+        assert value not in redacted, value
+
+
 # --- end-to-end emission through the real logging pipeline ------------------
 #
 # These assert on logs that were actually *captured*, so a policy regression
@@ -101,4 +145,16 @@ def test_secret_and_pii_never_reach_the_captured_records(caplog) -> None:
     assert "+79991234567" not in text
     assert "у окна" not in text
     assert "S" * 40 not in text
+    assert REDACTED in text
+
+
+def test_guest_name_never_reaches_the_captured_records(caplog) -> None:
+    configure_logging("INFO", json_output=True)
+    caplog.set_level(logging.INFO)
+    logger = structlog.get_logger("test.caplog.name")
+    logger.info("booking_created", guest_name="Иван Иванов", venue_name="Пивная №1")
+    assert caplog.records, "no records were captured; the redaction check would be vacuous"
+    text = caplog.text
+    assert "Иван Иванов" not in text
+    assert "Пивная №1" in text  # non-personal field stays readable
     assert REDACTED in text

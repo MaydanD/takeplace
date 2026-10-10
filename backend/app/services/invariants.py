@@ -24,8 +24,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 Severity = Literal["corruption", "alert"]
 
-#: JSON object keys that must never appear in ``booking_events.payload`` (§42.2).
-_FORBIDDEN_EVENT_KEYS = (
+#: JSON object keys that must never appear in an event or outbox payload (§42.2).
+#: The same list guards both ``booking_events.payload`` and
+#: ``notification_outbox.payload`` so the two payload contracts cannot drift.
+_FORBIDDEN_PII_KEYS = (
     "guest_name",
     "name",
     "phone",
@@ -185,7 +187,30 @@ async def event_payload_pii_violations(session: AsyncSession) -> int:
             WHERE lower(key) = ANY(:forbidden)
         )
         """,
-        {"forbidden": list(_FORBIDDEN_EVENT_KEYS)},
+        {"forbidden": list(_FORBIDDEN_PII_KEYS)},
+    )
+
+
+async def outbox_payload_pii_violations(session: AsyncSession) -> int:
+    """Count ``notification_outbox`` rows whose payload carries a PII key (§42.2).
+
+    ``notification_outbox.payload`` is designed to hold only ``booking_id``,
+    ``kind`` and ``formatter_version`` (§38.2). The audit mirrors the
+    ``booking_events`` PII check so a forbidden key added to either payload over
+    time is caught without changing any existing corruption/alert semantics.
+    """
+    return await _scalar(
+        session,
+        """
+        SELECT count(*)
+        FROM notification_outbox o
+        WHERE EXISTS (
+            SELECT 1
+            FROM jsonb_object_keys(o.payload) AS key
+            WHERE lower(key) = ANY(:forbidden)
+        )
+        """,
+        {"forbidden": list(_FORBIDDEN_PII_KEYS)},
     )
 
 
@@ -211,6 +236,13 @@ async def run_invariant_audit(
             "corruption",
         )
     )
+    checks.append(
+        InvariantCheck(
+            "notification_outbox_pii_keys",
+            await outbox_payload_pii_violations(session),
+            "corruption",
+        )
+    )
     return InvariantReport(tuple(checks))
 
 
@@ -218,5 +250,6 @@ __all__ = [
     "InvariantCheck",
     "InvariantReport",
     "event_payload_pii_violations",
+    "outbox_payload_pii_violations",
     "run_invariant_audit",
 ]

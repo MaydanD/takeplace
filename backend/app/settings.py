@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import ipaddress
 from enum import StrEnum
 from functools import lru_cache
 from typing import Annotated, Literal
@@ -31,6 +32,42 @@ _INSECURE_SECRET_MARKERS = (
     "your-key-here",
     "xxxxxxxx",
 )
+
+
+def _trusted_proxy_entries(value: str) -> list[str]:
+    """Split the comma-separated ``FORWARDED_ALLOW_IPS`` value into entries."""
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _is_ip_or_network(entry: str) -> bool:
+    """Whether ``entry`` is a single IP address or a CIDR network."""
+    try:
+        if "/" in entry:
+            ipaddress.ip_network(entry, strict=False)
+        else:
+            ipaddress.ip_address(entry)
+    except ValueError:
+        return False
+    return True
+
+
+def _trusts_every_peer(entry: str) -> bool:
+    """Whether one ``FORWARDED_ALLOW_IPS`` entry trusts arbitrary peers.
+
+    ``*`` is uvicorn's explicit trust-all literal. A CIDR with prefix length 0
+    (``0.0.0.0/0``, ``::/0``) is equivalent: uvicorn parses it into a network and
+    matches every address, so a plain string comparison would let it through
+    (audit FIX-03). A bare ``0.0.0.0`` is *not* trust-all — uvicorn treats it as
+    a single literal address that no real peer ever has.
+    """
+    if entry == "*":
+        return True
+    if "/" not in entry:
+        return False
+    try:
+        return ipaddress.ip_network(entry, strict=False).prefixlen == 0
+    except ValueError:
+        return False
 
 
 class Environment(StrEnum):
@@ -304,16 +341,22 @@ class Settings(BaseSettings):
             if not origin.startswith("https://"):
                 problems.append(f"production CORS origin must use https://: {origin!r}")
 
-        if self.forwarded_allow_ips.strip() == "*":
-            problems.append(
-                "TAKEPLACE_FORWARDED_ALLOW_IPS=* is not allowed in production; "
-                "list the reverse-proxy addresses only"
-            )
-        if not self.forwarded_allow_ips.strip():
+        proxy_entries = _trusted_proxy_entries(self.forwarded_allow_ips)
+        if not proxy_entries:
             problems.append(
                 "TAKEPLACE_FORWARDED_ALLOW_IPS must name the trusted reverse proxy "
                 "(Caddy) so forwarded client IPs are trustworthy"
             )
+        for entry in proxy_entries:
+            if _trusts_every_peer(entry):
+                problems.append(
+                    "TAKEPLACE_FORWARDED_ALLOW_IPS trusts every peer "
+                    f"({entry!r}); list the reverse-proxy addresses only"
+                )
+            elif not _is_ip_or_network(entry):
+                problems.append(
+                    f"TAKEPLACE_FORWARDED_ALLOW_IPS entry {entry!r} is not a valid IP or CIDR"
+                )
 
         if self.session_cookie_secure is False:
             problems.append(

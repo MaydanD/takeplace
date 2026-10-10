@@ -170,6 +170,53 @@ async def test_audit_detects_pii_keys_in_event_payload(api_client, tmp_path, ses
         await session.rollback()
 
 
+async def test_audit_detects_pii_keys_in_outbox_payload(api_client, tmp_path, session_factory):
+    # Audit FIX-04: ``notification_outbox.payload`` is audited for forbidden PII
+    # keys exactly like ``booking_events.payload``.
+    venue = Venue(api_client, tmp_path)
+    async with session_factory() as session:
+        await session.execute(
+            text(
+                """
+                INSERT INTO notification_outbox (
+                    venue_id, type, dedup_key, payload, status, attempts,
+                    next_attempt_at, expires_at, created_at
+                ) VALUES (
+                    :v, 'ONLINE_BOOKING', :d, '{"guest_name": "leak"}'::jsonb,
+                    'PENDING', 0, clock_timestamp(), clock_timestamp(), clock_timestamp()
+                )
+                """
+            ),
+            {"v": venue.venue_id, "d": f"stage13-outbox-pii:{venue.venue_id}"},
+        )
+        report = await _audit(session)
+        assert report.corruptions.get("notification_outbox_pii_keys") == 1
+        await session.rollback()
+
+
+async def test_audit_accepts_the_minimal_outbox_payload(api_client, tmp_path, session_factory):
+    venue = Venue(api_client, tmp_path)
+    async with session_factory() as session:
+        await session.execute(
+            text(
+                """
+                INSERT INTO notification_outbox (
+                    venue_id, type, dedup_key, payload, status, attempts,
+                    next_attempt_at, expires_at, created_at
+                ) VALUES (
+                    :v, 'ONLINE_BOOKING', :d,
+                    '{"booking_id": 1, "kind": "BOOKING_CREATED", "formatter_version": 1}'::jsonb,
+                    'PENDING', 0, clock_timestamp(), clock_timestamp(), clock_timestamp()
+                )
+                """
+            ),
+            {"v": venue.venue_id, "d": f"stage13-outbox-safe:{venue.venue_id}"},
+        )
+        report = await _audit(session)
+        assert report.corruptions.get("notification_outbox_pii_keys") is None
+        await session.rollback()
+
+
 async def test_audit_reports_unacknowledged_dead_as_alert_not_corruption(
     api_client, tmp_path, session_factory
 ):

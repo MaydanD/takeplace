@@ -110,10 +110,18 @@ async def anonymize_terminal_bookings(
     return int(cast(CursorResult[Any], result).rowcount or 0)
 
 
-async def purge_expired_request_ip_hmacs(session: AsyncSession, *, now: datetime) -> int:
-    """Null the short-lived abuse fingerprint once its TTL has elapsed (§40)."""
-    result = await session.execute(
-        text(
+async def purge_expired_request_ip_hmacs(
+    session: AsyncSession, *, now: datetime, batch_size: int | None = None
+) -> int:
+    """Null the short-lived abuse fingerprint once its TTL has elapsed (§40).
+
+    ``batch_size`` bounds the number of rows cleared per statement; the candidate
+    sub-query takes ``FOR UPDATE SKIP LOCKED`` so concurrent maintenance passes do
+    not block each other or clear the same row twice. ``None`` keeps the historical
+    unbounded behavior for direct callers/tests (audit FIX-05).
+    """
+    if batch_size is None:
+        statement = text(
             """
             UPDATE bookings
             SET request_ip_hmac = NULL, request_ip_hmac_expires_at = NULL
@@ -121,21 +129,40 @@ async def purge_expired_request_ip_hmacs(session: AsyncSession, *, now: datetime
               AND request_ip_hmac_expires_at IS NOT NULL
               AND request_ip_hmac_expires_at <= :now
             """
-        ),
-        {"now": now},
-    )
+        )
+    else:
+        statement = text(
+            """
+            UPDATE bookings AS b
+            SET request_ip_hmac = NULL, request_ip_hmac_expires_at = NULL
+            FROM (
+                SELECT id
+                FROM bookings
+                WHERE request_ip_hmac IS NOT NULL
+                  AND request_ip_hmac_expires_at IS NOT NULL
+                  AND request_ip_hmac_expires_at <= :now
+                ORDER BY id
+                LIMIT :batch_size
+                FOR UPDATE SKIP LOCKED
+            ) AS candidates
+            WHERE b.id = candidates.id
+            """
+        )
+    result = await session.execute(statement, {"now": now, "batch_size": batch_size})
     return int(cast(CursorResult[Any], result).rowcount or 0)
 
 
-async def purge_expired_admin_sessions(session: AsyncSession, *, now: datetime) -> int:
+async def purge_expired_admin_sessions(
+    session: AsyncSession, *, now: datetime, batch_size: int | None = None
+) -> int:
     """Delete expired sessions; history rows keep their ``venue_id`` (ON DELETE SET NULL).
 
     Delegates to the session-store helper so there is exactly one retention rule
     for ``admin_sessions``. The tenant-safe FK uses ``ON DELETE SET NULL
     (column)`` so a referenced ``booking_events``/``notification_outbox`` row
-    survives this delete (§6.10).
+    survives this delete (§6.10). ``batch_size`` bounds each delete statement.
     """
-    return await purge_expired_sessions(session, now=now)
+    return await purge_expired_sessions(session, now=now, batch_size=batch_size)
 
 
 async def purge_terminal_outbox(
@@ -207,8 +234,20 @@ async def run_retention(
         if not _bounded_batches(processed, batch_size):
             break
 
-    cleared = await purge_expired_request_ip_hmacs(session, now=now)
-    sessions = await purge_expired_admin_sessions(session, now=now)
+    cleared = 0
+    for _ in range(MAX_BATCHES):
+        processed = await purge_expired_request_ip_hmacs(session, now=now, batch_size=batch_size)
+        cleared += processed
+        if not _bounded_batches(processed, batch_size):
+            break
+
+    sessions = 0
+    for _ in range(MAX_BATCHES):
+        processed = await purge_expired_admin_sessions(session, now=now, batch_size=batch_size)
+        sessions += processed
+        if not _bounded_batches(processed, batch_size):
+            break
+
     return RetentionReport(
         anonymized_bookings=anonymized,
         cleared_ip_hmacs=cleared,

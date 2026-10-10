@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 from app.api.admin.dependencies import client_ip, require_trusted_origin
 from app.api.errors import ApiError
-from app.api.public.venues import _client_ip_hmac
+from app.api.public.venues import _canonical_request_ip, _client_ip_hmac, _venue_ip_hmac
 from app.middleware import CONTENT_SECURITY_POLICY
 from app.settings import Settings
 from fastapi.testclient import TestClient
@@ -185,3 +185,47 @@ def test_forged_forwarded_values_never_become_the_identity(
     trusted = _request(client=("10.0.0.7", 1))
     forged = _request(client=("10.0.0.7", 2), forwarded_for=forwarded)
     assert _client_ip_hmac(settings, trusted) == _client_ip_hmac(settings, forged)
+
+
+# --- persisted per-booking fingerprint (audit FIX-01) -----------------------
+
+
+def test_stored_ip_fingerprint_is_canonical_across_ipv6_forms(settings: Settings) -> None:
+    # The value persisted on the booking must be derived from the canonical IP,
+    # so equivalent IPv6 textual forms share one network identity.
+    compressed = _venue_ip_hmac(
+        settings, venue_id=7, client_ip=_canonical_request_ip(_request(client=("::1", 1)))
+    )
+    expanded = _venue_ip_hmac(
+        settings,
+        venue_id=7,
+        client_ip=_canonical_request_ip(_request(client=("0:0:0:0:0:0:0:1", 2))),
+    )
+    assert compressed == expanded
+
+
+def test_stored_ip_fingerprint_handles_ipv4(settings: Settings) -> None:
+    ip = _canonical_request_ip(_request(client=("203.0.113.7", 4242)))
+    assert ip == "203.0.113.7"
+    assert _venue_ip_hmac(settings, venue_id=3, client_ip=ip) == _venue_ip_hmac(
+        settings, venue_id=3, client_ip="203.0.113.7"
+    )
+
+
+def test_stored_ip_fingerprint_is_tenant_scoped(settings: Settings) -> None:
+    same_ip = "198.51.100.9"
+    assert _venue_ip_hmac(settings, venue_id=1, client_ip=same_ip) != _venue_ip_hmac(
+        settings, venue_id=2, client_ip=same_ip
+    )
+
+
+def test_stored_ip_fingerprint_uses_the_shared_unknown_fallback(settings: Settings) -> None:
+    missing = _venue_ip_hmac(
+        settings, venue_id=1, client_ip=_canonical_request_ip(_request(client=None))
+    )
+    malformed = _venue_ip_hmac(
+        settings, venue_id=1, client_ip=_canonical_request_ip(_request(client=("not-an-ip", 1)))
+    )
+    assert missing == malformed
+    # Not the literal old fallback prefix: an invalid address shares the marker.
+    assert missing == _venue_ip_hmac(settings, venue_id=1, client_ip="unknown")

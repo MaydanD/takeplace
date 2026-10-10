@@ -1282,6 +1282,33 @@
             "title": "Environment",
             "type": "string"
           },
+          "maintenance_last_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maintenance Last Error"
+          },
+          "maintenance_last_success_age_seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Maintenance Last Success Age Seconds"
+          },
+          "maintenance_stale": {
+            "default": false,
+            "title": "Maintenance Stale",
+            "type": "boolean"
+          },
           "online_abuse_alerts": {
             "default": 0,
             "title": "Online Abuse Alerts",

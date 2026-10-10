@@ -138,13 +138,32 @@ async def delete_session(session: AsyncSession, session_id: int) -> None:
     await session.execute(delete(AdminSession).where(AdminSession.id == session_id))
 
 
-async def purge_expired_sessions(session: AsyncSession, *, now: datetime | None = None) -> int:
+async def purge_expired_sessions(
+    session: AsyncSession, *, now: datetime | None = None, batch_size: int | None = None
+) -> int:
     """Delete expired sessions. Returns the number removed.
 
     ``now`` is optional so the periodic maintenance pass (PROJECT-SPEC §6.3) can
     reuse one deterministic clock across all of its cleanup steps; callers that
     do not care fall back to the operation clock.
+
+    ``batch_size`` bounds how many rows a single statement deletes. The maintenance
+    pass sets it so a large backlog is drained over several bounded statements
+    instead of one long-locking ``DELETE``; ``None`` keeps the historical
+    unbounded behavior for direct callers/tests. The batch sub-query takes
+    ``FOR UPDATE SKIP LOCKED``, so concurrent maintenance passes skip each other's
+    rows rather than block or double-delete (audit FIX-05).
     """
     moment = now if now is not None else await operation_now(session)
-    result = await session.execute(delete(AdminSession).where(AdminSession.expires_at <= moment))
+    statement = delete(AdminSession).where(AdminSession.expires_at <= moment)
+    if batch_size is not None:
+        candidates = (
+            select(AdminSession.id)
+            .where(AdminSession.expires_at <= moment)
+            .order_by(AdminSession.id)
+            .limit(batch_size)
+            .with_for_update(skip_locked=True)
+        )
+        statement = delete(AdminSession).where(AdminSession.id.in_(candidates))
+    result = await session.execute(statement)
     return int(cast(CursorResult[Any], result).rowcount or 0)

@@ -168,3 +168,21 @@ class WorkerHeartbeatRow(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     last_seen_at: Mapped[datetime] = mapped_column(TIMESTAMP(timezone=True), nullable=False)
+
+
+class MaintenanceHeartbeatRow(Base):
+    """Single-row marker of the last maintenance pass (PROJECT-SPEC §42.2, §47).
+
+    Retention/anonymization runs independently of VK delivery (audit FIX-02), so
+    it publishes its own heartbeat rather than reusing ``worker_heartbeat`` (a
+    live VK worker heartbeat must not hide a stopped retention job, and vice
+    versa). ``last_error`` stores only a sanitized exception class name — never a
+    message or any guest data.
+    """
+
+    __tablename__ = "maintenance_heartbeat"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    last_success_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    last_error_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))

@@ -39,10 +39,29 @@ _SENSITIVE_KEY_MARKERS = (
 )
 
 # A value shaped like a phone number or a long opaque secret.
-_PHONE_RE = re.compile(r"(?<!\w)\+?\d[\d\s().-]{7,}\d(?!\w)")
+#
+# A candidate must contain at least ``_MIN_PHONE_DIGITS`` digits (checked in
+# :func:`_redact_phone`), so an ordinary 8-digit date such as ``2026-10-05`` is
+# not masked just because it happens to use digits and dashes (audit FIX-06).
+_PHONE_RE = re.compile(r"(?<!\w)\+?\d[\d\s().-]{6,}\d(?!\w)")
 _LONG_OPAQUE_RE = re.compile(r"^[A-Za-z0-9_\-]{32,}$")
+_NON_DIGIT_RE = re.compile(r"\D")
 
-_REDACT_KEYS = {"request_ip", "client_ip", "remote_addr", "ip"}
+#: Shortest digit run still treated as a phone number. Nine digits keeps every
+#: real phone (10/11 digits domestic, 11+ international) covered while leaving
+#: 8-digit dates and short identifiers readable.
+_MIN_PHONE_DIGITS = 9
+
+# Keys whose value is redacted unconditionally. ``guest_name`` is listed here
+# explicitly instead of adding a generic ``name`` marker, which would also hide
+# useful technical fields (``venue_name``, ``hall_name``, ``event_type``).
+_REDACT_KEYS = {
+    "request_ip",
+    "client_ip",
+    "remote_addr",
+    "ip",
+    "guest_name",
+}
 
 
 def _is_sensitive_key(key: str) -> bool:
@@ -52,10 +71,27 @@ def _is_sensitive_key(key: str) -> bool:
     return any(marker in lowered for marker in _SENSITIVE_KEY_MARKERS)
 
 
+def _redact_phone(value: str) -> str:
+    """Redact phone-shaped runs in free text without touching ordinary dates.
+
+    A run that is mostly digits with a few separators (``2026-10-05``) is a date
+    or a short identifier, not a phone number, and must stay readable to
+    operators; only runs with enough digits to be a real number are masked.
+    """
+
+    def _replace(match: re.Match[str]) -> str:
+        if len(_NON_DIGIT_RE.sub("", match.group(0))) < _MIN_PHONE_DIGITS:
+            return match.group(0)
+        return REDACTED
+
+    return _PHONE_RE.sub(_replace, value)
+
+
 def _redact_value(value: Any) -> Any:
     if isinstance(value, str):
-        if _PHONE_RE.search(value):
-            return _PHONE_RE.sub(REDACTED, value)
+        redacted = _redact_phone(value)
+        if redacted != value:
+            return redacted
         if _LONG_OPAQUE_RE.match(value):
             return REDACTED
         return value

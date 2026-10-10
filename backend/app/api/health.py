@@ -23,6 +23,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db_session
 from app.db.time import operation_now
+from app.services.maintenance_heartbeat import (
+    maintenance_last_error,
+    maintenance_success_age_seconds,
+)
 from app.services.outbox_worker import collect_metrics
 from app.services.public_rate_limit import public_abuse_alert_count
 from app.services.timezone_capability import get_monitor
@@ -35,6 +39,11 @@ router = APIRouter(tags=["health"])
 #: multiple of the configured heartbeat cadence so a single slow cycle does not
 #: flap the status.
 _HEARTBEAT_STALE_MULTIPLIER = 3
+
+#: A maintenance pass older than this (a multiple of the configured cadence)
+#: degrades ``/health/ops``. Retention is independent of VK delivery, so a
+#: deployment whose cleanup has silently stopped must be visible (§42.2, FIX-02).
+_MAINTENANCE_STALE_MULTIPLIER = 3
 
 
 class LivenessResponse(BaseModel):
@@ -60,6 +69,12 @@ class OpsResponse(BaseModel):
     outbox_processing: int = 0
     outbox_oldest_pending_age_seconds: float | None = None
     worker_heartbeat_age_seconds: float | None = None
+    # Retention heartbeat (§42.2, FIX-02). ``maintenance_stale`` is true when no
+    # pass has ever committed or the last one is too old; ``maintenance_last_error``
+    # is a sanitized exception class name.
+    maintenance_last_success_age_seconds: float | None = None
+    maintenance_stale: bool = False
+    maintenance_last_error: str | None = None
     timezone_capability: Literal["ok", "unsupported"] = "ok"
     online_abuse_alerts: int = 0
 
@@ -120,6 +135,8 @@ async def ops(
     skipped: dict[str, int] = {}
     oldest_age: float | None = None
     heartbeat_age: float | None = None
+    maintenance_age: float | None = None
+    maintenance_error: str | None = None
     if database_ok:
         now = await operation_now(session)
         metrics = await collect_metrics(session, now=now)
@@ -131,10 +148,17 @@ async def ops(
         processing = metrics.processing
         oldest_age = metrics.oldest_pending_age_seconds
         heartbeat_age = await heartbeat_age_seconds(session, now=now)
+        maintenance_age = await maintenance_success_age_seconds(session, now=now)
+        maintenance_error = await maintenance_last_error(session)
 
     heartbeat_stale = settings.vk_worker_enabled and (
         heartbeat_age is None
         or heartbeat_age > settings.vk_worker_heartbeat_seconds * _HEARTBEAT_STALE_MULTIPLIER
+    )
+    # Retention is not gated on VK: a missing/old maintenance heartbeat always
+    # degrades ops so a stopped cleanup job cannot go unnoticed (FIX-02).
+    maintenance_stale = maintenance_age is None or (
+        maintenance_age > settings.maintenance_interval_seconds * _MAINTENANCE_STALE_MULTIPLIER
     )
     degraded = (
         not database_ok
@@ -142,6 +166,7 @@ async def ops(
         or abuse_alerts > 0
         or unack_dead > 0
         or heartbeat_stale
+        or maintenance_stale
         or (oldest_age is not None and oldest_age > settings.vk_notification_max_age_seconds)
     )
     return OpsResponse(
@@ -156,6 +181,9 @@ async def ops(
         outbox_processing=processing,
         outbox_oldest_pending_age_seconds=oldest_age,
         worker_heartbeat_age_seconds=heartbeat_age,
+        maintenance_last_success_age_seconds=maintenance_age,
+        maintenance_stale=maintenance_stale,
+        maintenance_last_error=maintenance_error,
         timezone_capability="ok" if timezone_ok else "unsupported",
         online_abuse_alerts=abuse_alerts,
     )

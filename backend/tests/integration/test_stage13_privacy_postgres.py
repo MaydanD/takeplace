@@ -176,6 +176,24 @@ async def test_active_bookings_are_never_anonymized(api_client, tmp_path, sessio
     assert row.anonymized_at is None and row.guest_name
 
 
+async def test_open_booking_is_never_anonymized(api_client, tmp_path, session_factory):
+    # Audit FIX-02: only CLOSED/CANCELED are terminal; an OPEN booking is live
+    # operational state, so an old timestamp must not make it eligible.
+    venue = Venue(api_client, tmp_path)
+    booking = _create(venue)
+    async with session_factory() as session, session.begin():
+        await session.execute(
+            text(
+                "UPDATE bookings SET status = 'OPEN', waiting_at = NULL, "
+                "opened_at = clock_timestamp() - interval '200 days' WHERE id = :id"
+            ),
+            {"id": booking["id"]},
+        )
+    assert await _anonymize(session_factory, venue_id=venue.venue_id) == 0
+    row = await _rows(session_factory, booking["id"])
+    assert row.anonymized_at is None and row.guest_name
+
+
 async def test_anonymization_is_tenant_scoped(api_client, tmp_path, session_factory):
     a = Venue(api_client, tmp_path)
     b = Venue(api_client, tmp_path)
@@ -276,7 +294,68 @@ async def test_ip_hmac_boundary_is_inclusive(api_client, tmp_path, session_facto
         assert await purge_expired_request_ip_hmacs(session, now=now) == 1
 
 
+async def test_ip_hmac_batching_drains_every_eligible_row(api_client, tmp_path, session_factory):
+    """Audit FIX-05: a bounded batch must still drain all eligible rows."""
+    venue = Venue(api_client, tmp_path, tables=3)
+    bookings = [_create(venue, table_index=index) for index in range(3)]
+    for booking in bookings:
+        await _set_ip_hmac(session_factory, booking["id"], expires_delta_seconds=-5)
+
+    async with session_factory() as session:
+        now = await operation_now(session)
+    total = 0
+    for _ in range(10):  # bounded: the loop must terminate on its own
+        async with session_factory() as session, session.begin():
+            batch = await purge_expired_request_ip_hmacs(session, now=now, batch_size=1)
+        total += batch
+        if batch == 0:
+            break
+    assert total >= 3
+    for booking in bookings:
+        assert (await _rows(session_factory, booking["id"])).request_ip_hmac is None
+
+
 # --- session retention (§6.3) -----------------------------------------------
+
+
+async def test_admin_session_batching_drains_every_eligible_row(
+    api_client, tmp_path, session_factory
+):
+    """Audit FIX-05: expired sessions are removed in bounded batches, none skipped."""
+    venue = Venue(api_client, tmp_path)
+    tokens = [uuid.uuid4().hex for _ in range(3)]
+    async with session_factory() as session, session.begin():
+        now = await operation_now(session)
+        for token in tokens:
+            await session.execute(
+                text(
+                    "INSERT INTO admin_sessions (venue_id, token_hash, created_at, expires_at, "
+                    "last_seen_at) VALUES (:v, :t, :c, :e, :c)"
+                ),
+                {
+                    "v": venue.venue_id,
+                    "t": token,
+                    "c": now - timedelta(days=40),
+                    "e": now - timedelta(days=10),
+                },
+            )
+    total = 0
+    async with session_factory() as session:
+        for _ in range(10):  # bounded: the loop must terminate on its own
+            async with session.begin():
+                batch = await purge_expired_admin_sessions(session, now=now, batch_size=1)
+            total += batch
+            if batch == 0:
+                break
+    assert total >= 3
+    async with session_factory() as session:
+        remaining = await session.scalar(
+            text(
+                "SELECT count(*) FROM admin_sessions WHERE venue_id = :v AND token_hash = ANY(:t)"
+            ),
+            {"v": venue.venue_id, "t": tokens},
+        )
+    assert remaining == 0
 
 
 async def test_expired_sessions_are_deleted_and_valid_kept(api_client, tmp_path, session_factory):

@@ -1358,6 +1358,15 @@ export interface components {
             database: "ok" | "unavailable";
             /** Environment */
             environment: string;
+            /** Maintenance Last Error */
+            maintenance_last_error?: string | null;
+            /** Maintenance Last Success Age Seconds */
+            maintenance_last_success_age_seconds?: number | null;
+            /**
+             * Maintenance Stale
+             * @default false
+             */
+            maintenance_stale: boolean;
             /**
              * Online Abuse Alerts
              * @default 0

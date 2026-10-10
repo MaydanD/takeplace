@@ -32,6 +32,7 @@ from tests.integration.support import (
     import_layout_cli,
     login,
     make_client,
+    make_settings,
     unique,
 )
 
@@ -303,6 +304,47 @@ def test_public_booking_idempotent_replay(api_client: TestClient, tmp_path: Path
     second = venue.create_booking(key=key, expect=200)
     assert first.json()["id"] == second.json()["id"]
     assert first.json()["number"] == second.json()["number"]
+
+
+def test_public_booking_stores_the_canonical_ip_fingerprint(
+    api_client: TestClient, tmp_path: Path
+) -> None:
+    # Audit FIX-01: the persisted ``request_ip_hmac`` must be derived from the
+    # canonical client IP (via ``canonical_client_ip``), not the raw
+    # ``request.client.host`` string. The TestClient host is ``testclient``,
+    # which is not an IP, so the canonical value is the shared unknown marker.
+    from asyncio import run
+
+    from app.security.client_ip import UNKNOWN_CLIENT_IP
+    from app.security.tokens import hmac_sha256_hex
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    venue = PublicVenue(api_client, tmp_path)
+    booking = venue.create_booking().json()
+    settings = make_settings()
+    expected = hmac_sha256_hex(settings.abuse_hmac_key, f"{venue.venue_id}:{UNKNOWN_CLIENT_IP}")
+
+    async def _stored() -> tuple[str | None, object]:
+        engine = create_async_engine(APP_URL)
+        factory = async_sessionmaker(engine, expire_on_commit=False)
+        async with factory() as session:
+            row = (
+                await session.execute(
+                    text(
+                        "SELECT request_ip_hmac, request_ip_hmac_expires_at "
+                        "FROM bookings WHERE id = :id"
+                    ),
+                    {"id": booking["id"]},
+                )
+            ).one()
+        await engine.dispose()
+        return row[0], row[1]
+
+    stored_hmac, expires_at = run(_stored())
+    assert stored_hmac == expected
+    assert stored_hmac != hmac_sha256_hex(settings.abuse_hmac_key, f"{venue.venue_id}:testclient")
+    assert expires_at is not None
 
 
 def test_public_booking_idempotency_key_reused(api_client: TestClient, tmp_path: Path) -> None:

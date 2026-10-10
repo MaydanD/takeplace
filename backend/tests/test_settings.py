@@ -82,6 +82,38 @@ def test_production_rejects_wildcard_forwarded_allow_ips() -> None:
         Settings(**_production_kwargs(forwarded_allow_ips="*"))  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize("trust_all", ["0.0.0.0/0", "::/0", "*,10.0.0.0/8", "10.0.0.0/8,0.0.0.0/0"])
+def test_production_rejects_prefix_zero_cidr_trust_all(trust_all: str) -> None:
+    # A prefix-0 network matches every peer in uvicorn, so it is trust-all even
+    # though it is not the literal ``*`` string (audit FIX-03).
+    with pytest.raises(ValidationError, match="FORWARDED_ALLOW_IPS"):
+        Settings(**_production_kwargs(forwarded_allow_ips=trust_all))  # type: ignore[arg-type]
+
+
+def test_production_accepts_a_single_trusted_proxy_ip() -> None:
+    settings = Settings(**_production_kwargs(forwarded_allow_ips="127.0.0.1"))  # type: ignore[arg-type]
+    assert settings.forwarded_allow_ips == "127.0.0.1"
+
+
+@pytest.mark.parametrize("allow_ips", ["10.0.0.0/8", "172.16.0.0/12", "::1", "10.1.2.3,10.4.5.6"])
+def test_production_accepts_point_ips_and_bounded_networks(allow_ips: str) -> None:
+    settings = Settings(**_production_kwargs(forwarded_allow_ips=allow_ips))  # type: ignore[arg-type]
+    assert settings.forwarded_allow_ips == allow_ips
+
+
+def test_production_rejects_malformed_proxy_entry() -> None:
+    # A malformed entry silently trusts nothing, which makes every client share
+    # the proxy's identity; fail fast instead (fail-fast is the §39 contract).
+    with pytest.raises(ValidationError, match="FORWARDED_ALLOW_IPS"):
+        Settings(**_production_kwargs(forwarded_allow_ips="not-an-ip"))  # type: ignore[arg-type]
+
+
+def test_non_production_still_allows_wildcard_proxy_trust() -> None:
+    # The wildcard ban is a production-only guard (local development uses it).
+    settings = Settings(env="development", forwarded_allow_ips="*")
+    assert settings.forwarded_allow_ips == "*"
+
+
 def test_production_rejects_short_vk_key() -> None:
     with pytest.raises(ValidationError, match="VK_ENCRYPTION_KEYS"):
         Settings(**_production_kwargs(vk_encryption_keys="1:c2hvcnQ"))  # type: ignore[arg-type]

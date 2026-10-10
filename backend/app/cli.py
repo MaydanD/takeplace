@@ -50,6 +50,7 @@ from app.services.errors import ServiceError, VenueNotFoundError
 from app.services.halls import import_layout
 from app.services.invariants import InvariantReport, run_invariant_audit
 from app.services.maintenance import run_maintenance
+from app.services.maintenance_heartbeat import mark_maintenance_success
 from app.services.venues import (
     create_venue,
     get_admin_for_venue,
@@ -298,6 +299,9 @@ async def _cmd_run_maintenance(args: argparse.Namespace) -> int:
             venue_id = venue.id
         now = await operation_now(session)
         report = await run_maintenance(session, now=now, settings=settings, venue_id=venue_id)
+        # A manual pass counts as a successful maintenance run, so /health/ops
+        # does not stay "stale" after an operator has just cleaned up (§47).
+        await mark_maintenance_success(session, now=now)
     retention = report.retention
     print("maintenance pass complete")
     print(f"  anonymized bookings: {retention.anonymized_bookings}")
