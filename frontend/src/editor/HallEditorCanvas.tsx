@@ -9,14 +9,16 @@
  */
 import { useEffect, useMemo, useRef } from "react";
 import type Konva from "konva";
-import { Circle, Group, Layer, Rect, Stage, Text, Transformer } from "react-konva";
+import { Ellipse, Group, Layer, Rect, Stage, Text, Transformer } from "react-konva";
 
+import { tableSeatLocals, tableShape } from "@/components/tableSeats";
 import { MIN_SIZE, readNodeBack } from "@/editor/geometry";
 import { clampZoom, ZOOM_STEP } from "@/editor/hallEditorStore";
 import type { DraftStatic, DraftTable } from "@/editor/hallEditorStore";
 import { useHallEditorStore } from "@/editor/hallEditorStore";
 
 const TABLE_FILL = "#2f9e6a";
+const SEAT_FILL = "#ffffff";
 const STATIC_FILL = "rgba(120, 120, 120, 0.25)";
 
 function TableShape({
@@ -49,51 +51,55 @@ function TableShape({
   const stroke = selected ? "#1d4ed8" : "rgba(0,0,0,0.25)";
   const strokeWidth = selected ? 2 : 1;
   const caption = `${table.number} · ${table.capacity}`;
-  if (table.shape === "circle") {
-    const radius = Math.min(table.width, table.height) / 2;
-    return (
-      <Group {...common}>
-        <Circle
-          x={0}
-          y={0}
-          radius={radius}
-          fill={TABLE_FILL}
-          stroke={stroke}
-          strokeWidth={strokeWidth}
-        />
-        <Text
-          x={-radius}
-          y={-10}
-          width={radius * 2}
-          align="center"
-          text={caption}
-          fontSize={14}
-          fill="#ffffff"
-        />
-      </Group>
-    );
-  }
-  return (
-    <Group {...common} offsetX={table.width / 2} offsetY={table.height / 2}>
-      <Rect
-        x={0}
-        y={0}
-        width={table.width}
-        height={table.height}
-        cornerRadius={6}
+  const shape = tableShape(table.shape);
+  const seats = tableSeatLocals(table);
+  const body =
+    shape === "circle" || shape === "ellipse" ? (
+      <Ellipse
+        radiusX={table.width / 2}
+        radiusY={table.height / 2}
         fill={TABLE_FILL}
         stroke={stroke}
         strokeWidth={strokeWidth}
       />
+    ) : (
+      <Rect
+        x={-table.width / 2}
+        y={-table.height / 2}
+        width={table.width}
+        height={table.height}
+        cornerRadius={shape === "square" ? 4 : 6}
+        fill={TABLE_FILL}
+        stroke={stroke}
+        strokeWidth={strokeWidth}
+      />
+    );
+  return (
+    <Group {...common}>
+      {body}
       <Text
-        x={0}
-        y={table.height / 2 - 9}
+        x={-table.width / 2}
+        y={-9}
         width={table.width}
         align="center"
         text={caption}
         fontSize={14}
         fill="#ffffff"
       />
+      {seats.map((seat, index) => (
+        <Rect
+          key={`seat-${index}`}
+          x={seat.x - seat.size / 2}
+          y={seat.y - seat.size / 2}
+          width={seat.size}
+          height={seat.size}
+          cornerRadius={1.5}
+          fill={SEAT_FILL}
+          stroke={TABLE_FILL}
+          strokeWidth={1.5}
+          listening={false}
+        />
+      ))}
     </Group>
   );
 }

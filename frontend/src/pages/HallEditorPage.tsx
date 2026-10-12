@@ -330,8 +330,10 @@ export function HallEditorPage() {
                 value={selectedTable.shape}
                 onChange={(event) => updateTable(selectedTable.key, { shape: event.target.value })}
               >
-                <option value="rect">Прямоугольник</option>
-                <option value="circle">Круг</option>
+                <option value="circle">Круглый</option>
+                <option value="ellipse">Овальный</option>
+                <option value="square">Квадратный</option>
+                <option value="rect">Прямоугольный</option>
               </select>
             </label>
             {(["x", "y", "width", "height", "rotation"] as const).map((field) => (

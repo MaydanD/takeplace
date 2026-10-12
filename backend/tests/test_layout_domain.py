@@ -44,6 +44,13 @@ def test_valid_table_geometry() -> None:
     validate_table_geometry(**_geometry())  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize("shape", ["rect", "square", "circle", "ellipse"])
+def test_all_editor_shapes_are_accepted(shape: str) -> None:
+    # The editor's four shapes are all valid; the two new ones are additive so
+    # existing rect/circle rows stay valid (§6.5).
+    validate_table_geometry(**_geometry(shape=shape))  # type: ignore[arg-type]
+
+
 @pytest.mark.parametrize(
     "overrides",
     [

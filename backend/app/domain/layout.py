@@ -20,7 +20,11 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError,
 
 # Table shapes the renderer understands. The spec leaves ``shape`` free text, so
 # this is our deterministic contract, pinned by a DB CHECK (§44 "enum-like").
-VALID_TABLE_SHAPES: tuple[str, ...] = ("rect", "circle")
+#
+# ``rect`` and ``circle`` are the original Stage 4 values; ``square`` and
+# ``ellipse`` extend the editor to the four shapes the booking UX needs. The
+# list is additive, so every existing row stays valid.
+VALID_TABLE_SHAPES: tuple[str, ...] = ("rect", "square", "circle", "ellipse")
 
 # Static-element limits (§30.3: a cap on element count and total JSON size).
 MAX_STATIC_ELEMENTS = 200

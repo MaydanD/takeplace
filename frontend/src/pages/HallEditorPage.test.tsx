@@ -30,6 +30,7 @@ vi.mock("react-konva", () => {
     Group: element("Group"),
     Rect: element("Rect"),
     Circle: element("Circle"),
+    Ellipse: element("Ellipse"),
     Text: element("Text"),
     Transformer: element("Transformer"),
   };
@@ -114,6 +115,7 @@ describe("HallEditorPage", () => {
     const user = userEvent.setup();
     renderWithProviders(<HallEditorPage />, { route: "/admin/editor" });
     await screen.findByTestId("dirty-state");
+    await waitFor(() => expect(useHallEditorStore.getState().draft).not.toBeNull());
 
     await user.click(screen.getByRole("button", { name: "Добавить стол" }));
     expect(screen.getByTestId("dirty-state")).toHaveTextContent("Есть несохранённые изменения");
@@ -184,6 +186,35 @@ describe("HallEditorPage", () => {
     await user.click(screen.getByRole("button", { name: "Добавить элемент" }));
     await screen.findByTestId("static-properties");
     expect(screen.getByTestId("dirty-state")).toHaveTextContent("Есть несохранённые изменения");
+  });
+
+  it("changes the selected table shape and saves it", async () => {
+    const fetchMock = mockFetch(baseRoutes());
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderWithProviders(<HallEditorPage />, { route: "/admin/editor" });
+    await screen.findByTestId("dirty-state");
+    await waitFor(() => expect(useHallEditorStore.getState().draft).not.toBeNull());
+
+    const tableNode = await screen.findByText("1 · 4");
+    await user.click(tableNode.closest("[data-konva]") as HTMLElement);
+    const props = await screen.findByTestId("table-properties");
+    const shape = within(props).getByLabelText("Форма");
+    expect(shape.querySelectorAll("option")).toHaveLength(4);
+    await user.selectOptions(shape, "ellipse");
+    await waitFor(() =>
+      expect(useHallEditorStore.getState().draft?.tables[0]?.shape).toBe("ellipse"),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Сохранить схему" }));
+    await waitFor(() => {
+      const putCall = fetchMock.mock.calls.find(
+        ([url, init]) => String(url).includes("/halls/1/layout") && init?.method === "PUT",
+      );
+      expect(putCall).toBeTruthy();
+      const body = JSON.parse(String(putCall![1]!.body)) as { tables: { shape: string }[] };
+      expect(body.tables[0]!.shape).toBe("ellipse");
+    });
   });
 
   it("archives the selected table out of the draft", async () => {
