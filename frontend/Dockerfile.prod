@@ -1,0 +1,36 @@
+# =============================================================================
+# Takeplace frontend — production image.
+#
+# Multi-stage: Node builds the static SPA bundle, then a minimal nginx serves it.
+# Nothing but the built static assets ends up in the runtime image — no source,
+# no node_modules, no dev server.
+#
+# The API is same-origin in production (PROJECT-SPEC §3.6): the SPA calls
+# ``/api/*`` and ``/health/*`` with an empty base URL, and Caddy routes those
+# paths to the API while everything else lands here. That is why no API URL is
+# baked into the bundle.
+#
+# The SPA fallback (``try_files $uri /index.html``) lives in `nginx.prod.conf`
+# so deep links such as ``/admin/bookings`` survive a reload.
+# =============================================================================
+FROM node:22-alpine AS build
+
+WORKDIR /app
+
+# Deterministic install from the committed lockfile.
+COPY package.json package-lock.json ./
+RUN npm ci
+
+COPY . .
+RUN npm run build
+
+
+FROM nginx:1.27-alpine AS serve
+
+# Static bundle only.
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY nginx.prod.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]

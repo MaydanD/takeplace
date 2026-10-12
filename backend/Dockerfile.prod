@@ -1,0 +1,52 @@
+# =============================================================================
+# Takeplace backend — production image.
+#
+# Differences from the development `Dockerfile`:
+#   * installs only the runtime dependencies (``pip install .``), never ``.[dev]``
+#     — no pytest/hypothesis/ruff/mypy in the deployed artefact;
+#   * no source bind mount: the code is baked into the image, so an image tag is
+#     a complete, reproducible deployment unit;
+#   * the same image serves the API (uvicorn) and the worker
+#     (``python -m app.worker``) and runs Alembic (``alembic upgrade head``).
+#
+# The application is ALWAYS launched from an image built here; migrations run as
+# the DDL-capable ``takeplace_migrator`` role, the API/worker as the DML-only
+# ``takeplace_app`` role (PROJECT-SPEC §46). Both DSNs come from the environment.
+# =============================================================================
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONPATH=/app
+
+WORKDIR /app
+
+# ca-certificates is required for outbound TLS (VK API, when it is enabled).
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Runtime dependencies come from pyproject.toml — no version is invented here.
+# ``app`` must be present for hatchling to build the wheel, so it is copied in
+# the same layer as the metadata.
+COPY pyproject.toml ./
+COPY app ./app
+RUN pip install --upgrade pip \
+    && pip install .
+
+# Alembic revisions and configuration are not part of the wheel; copy them
+# explicitly so ``alembic upgrade head`` works inside the image.
+COPY alembic.ini ./
+COPY alembic ./alembic
+
+# Run as an unprivileged user (same uid as the development image).
+RUN useradd --create-home --uid 10001 appuser \
+    && chown -R appuser:appuser /app
+USER appuser
+
+EXPOSE 8000
+
+# The migration service and the worker override this command in compose.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]

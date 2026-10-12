@@ -1,0 +1,147 @@
+# =============================================================================
+# Takeplace — production / closed test-stand stack.
+#
+#   cd /opt/takeplace/repo
+#   docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+#
+# This file is the single source of truth for the deployed topology. It is
+# deliberately separate from the development `docker-compose.yml`, which runs a
+# local PostgreSQL and a Vite dev server.
+#
+# Deployment assumptions (see deploy/README.md):
+#   * the VPS already runs shared infrastructure that MUST NOT be touched:
+#     Caddy (`infra` project) on ports 80/443 and PostgreSQL
+#     (`data` project) on the external `data` network;
+#   * therefore this stack publishes NO ports at all. The API and the frontend
+#     are reachable only through Caddy on the shared external `edge` network via
+#     stable network aliases, and PostgreSQL only on the external `data` network.
+#   * the API, worker and migrations all use the SAME dedicated, isolated logical
+#     database and roles inside the shared PostgreSQL instance — never the
+#     `smm_planner` or `control` databases.
+#
+# Start-up order is enforced by real readiness signals: `migrate` must complete
+# successfully before `api` and `worker` start, and `api` is healthchecked on
+# `/health/ready` (which actually queries PostgreSQL).
+#
+# Memory limits are sized for a 2 GB VPS that already hosts other services;
+# log rotation is capped so a container can never fill the 58 GB disk.
+#
+# Rollback: pin a previous image tag via `TAKEPLACE_IMAGE_TAG` in `.env` (see
+# "Update and rollback" in deploy/README.md) — never `docker compose down -v`.
+# =============================================================================
+
+name: takeplace
+
+x-takeplace-backend: &takeplace-backend
+  build:
+    context: ./backend
+    dockerfile: Dockerfile.prod
+  image: takeplace-backend:${TAKEPLACE_IMAGE_TAG:-local}
+  env_file:
+    - .env
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  # --- migrations (one-shot) -------------------------------------------------
+  # Runs as the DDL-capable migrator role. Exits 0 on success; the API and worker
+  # wait for it with `service_completed_successfully`.
+  migrate:
+    <<: *takeplace-backend
+    restart: "no"
+    networks: [data]
+    mem_limit: 320m
+    command: ["alembic", "upgrade", "head"]
+
+  # --- API (FastAPI / uvicorn) ----------------------------------------------
+  api:
+    <<: *takeplace-backend
+    restart: unless-stopped
+    # Drain in-flight requests, including open SSE streams, before SIGKILL
+    # instead of Docker's 10s default.
+    stop_grace_period: 20s
+    networks:
+      edge:
+        aliases: [takeplace-api]
+      data: {}
+    mem_limit: 224m
+    command:
+      - uvicorn
+      - app.main:app
+      - --host
+      - "0.0.0.0"
+      - --port
+      - "8000"
+      # Structured middleware logs the path only; raw access logs would leak
+      # guest phone searches (PROJECT-SPEC §39.7).
+      - --no-access-log
+      # Trust X-Forwarded-* ONLY from the configured reverse proxy
+      # (PROJECT-SPEC §39.5). The value is the Caddy container's address on the
+      # `edge` network — never "*" and never the whole subnet.
+      - --proxy-headers
+      - --forwarded-allow-ips
+      - ${TAKEPLACE_FORWARDED_ALLOW_IPS:?set in .env}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      # /health/ready queries PostgreSQL, so this is a real readiness probe.
+      test: ["CMD-SHELL", "python -m app.healthcheck --url http://127.0.0.1:8000/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # --- single background worker ---------------------------------------------
+  # Exactly ONE replica: it owns both the VK delivery loop and the periodic
+  # retention/anonymization maintenance loop (PROJECT-SPEC §3.5, §42.2, §60).
+  # It joins only the `data` network — it needs PostgreSQL and nothing else, so
+  # it is not reachable from the edge network at all.
+  worker:
+    <<: *takeplace-backend
+    restart: unless-stopped
+    # Finish the in-flight bookkeeping transaction after SIGTERM.
+    stop_grace_period: 30s
+    networks: [data]
+    mem_limit: 192m
+    command: ["python", "-m", "app.worker"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # --- static frontend ------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    image: takeplace-frontend:${TAKEPLACE_IMAGE_TAG:-local}
+    restart: unless-stopped
+    networks:
+      edge:
+        aliases: [takeplace-frontend]
+    mem_limit: 48m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/nginx-health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+networks:
+  # Shared with Caddy (infra project) so the reverse proxy can reach the aliases
+  # above. External: this stack must never create or recreate it.
+  edge:
+    external: true
+    name: edge
+  # Shared PostgreSQL instance (data project). External for the same reason.
+  data:
+    external: true
+    name: data

@@ -1,0 +1,90 @@
+# >>> takeplace >>> managed by deploy/scripts/install-caddy-site.sh — do not edit by hand
+# =============================================================================
+# Takeplace — Caddy site fragment for the shared `infra` Caddy on this VPS.
+#
+# Rendered by deploy/scripts/install-caddy-site.sh, which:
+#   * substitutes __DOMAIN__ and __BASIC_AUTH_HASH__,
+#   * writes the WHOLE file (this comment header included) between the managed
+#     `>>> takeplace >>>` / `<<< takeplace <<<` markers in /opt/infra/Caddyfile,
+#     so re-running the installer replaces the fragment instead of appending a
+#     second copy of this header,
+#   * validates with `caddy validate` and applies it with `caddy reload`
+#     (a graceful, zero-downtime reload — the Caddy container is NOT restarted
+#     and the existing SMM Planner / Control Panel site blocks are untouched).
+#
+# Do NOT add a second Caddy: ports 80/443 belong to the `infra` container.
+#
+# Design notes
+# ------------
+# * The outer `basic_auth` gate is OPTIONAL and controlled by the installer:
+#     - default: enabled. It is the outermost gate for the WHOLE site — the SPA,
+#       the admin API, the public API and the health endpoints. After the browser
+#       answers the challenge once, it sends the Authorization header for every
+#       subsequent same-origin request, including fetch() and EventSource (SSE).
+#       Its password is a generated random secret stored only on the server
+#       (/opt/takeplace/secrets/, mode 600) and present here only as a bcrypt
+#       hash; neither the password nor the hash is committed to Git.
+#     - `--no-basic-auth`: the marked section below is stripped, the browser goes
+#       straight to the Takeplace login page, and the ONLY gate is the Takeplace
+#       account (Argon2id + the API's login rate limiter). Use it only while the
+#       stand is acceptable to expose on its public hostname.
+#   The markers below exist so the installer can remove that block cleanly.
+# * `redir / /admin/login 302` makes the login page the landing page for staff;
+#   deleting that one line restores the public status page at the root.
+# * `flush_interval -1` on the API route disables response buffering so the admin
+#   SSE stream (`GET /api/admin/v1/stream`) delivers events immediately instead
+#   of buffering a response that never completes (PROJECT-SPEC §37.4).
+# * `handle` blocks are evaluated in order, first match wins: /api/* and /health/*
+#   go to the API, everything else to the static frontend container. The API path
+#   therefore can never fall back to index.html.
+# * Requests reach the containers over the shared external `edge` network via the
+#   stable aliases `takeplace-api` and `takeplace-frontend` (see
+#   docker-compose.prod.yml). No host port is published by the Takeplace stack.
+# =============================================================================
+
+__DOMAIN__ {
+	encode zstd gzip
+
+	# Staff land directly on the app's login page instead of the public status
+	# page. Only the exact "/" path is redirected: the API, the health endpoints,
+	# the SPA assets and the /b/<slug> public booking page behave exactly as
+	# before. 302 rather than 301 so the choice stays reversible without a
+	# permanent entry in browser caches.
+	redir / /admin/login 302
+
+	# >>> takeplace-basic-auth >>> (removed by install-caddy-site.sh --no-basic-auth)
+	# Optional outer gate in front of everything.
+	basic_auth {
+		takeplace __BASIC_AUTH_HASH__
+	}
+	# <<< takeplace-basic-auth <<<
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		Content-Security-Policy "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; font-src 'self' data:"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "same-origin"
+		Permissions-Policy "geolocation=(), microphone=(), camera=()"
+		X-Robots-Tag "noindex, nofollow"
+		-Server
+	}
+
+	# Public + admin API, including the SSE stream.
+	handle /api/* {
+		reverse_proxy takeplace-api:8000 {
+			flush_interval -1
+		}
+	}
+
+	# Health endpoints: never a public entry point for PII or secrets.
+	handle /health/* {
+		reverse_proxy takeplace-api:8000
+	}
+
+	# Built SPA (static assets + index.html fallback for deep links).
+	handle {
+		reverse_proxy takeplace-frontend:80
+	}
+}
+# <<< takeplace <<<
